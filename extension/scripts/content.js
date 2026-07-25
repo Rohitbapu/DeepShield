@@ -9,6 +9,7 @@ const THRESHOLD = 40; // Only show badges if risk_score > 40
 
 let processedUrls = new Set();
 
+// ---------- CHECK PROTECTION ----------
 function isProtectionActive() {
     return new Promise((resolve) => {
         chrome.storage.local.get(['filterDisabled', 'allowlist'], (data) => {
@@ -28,13 +29,14 @@ function isProtectionActive() {
     });
 }
 
+// ---------- INJECT BADGE (ONLY IF DANGEROUS) ----------
 function injectBadge(anchor, riskData) {
     const url = anchor.href;
     const score = riskData.risk_score || 0;
 
-    // ---------- ONLY proceed if score > THRESHOLD ----------
+    // 🔴 IMPORTANT: If score <= THRESHOLD, do NOTHING
     if (score <= THRESHOLD) {
-        // Do nothing for safe URLs – no badge, no highlight
+        console.log(`DeepShield: Safe URL – no action taken (${score}%)`, url);
         return;
     }
 
@@ -85,6 +87,7 @@ function injectBadge(anchor, riskData) {
     anchor.parentNode.insertBefore(badge, anchor.nextSibling);
 }
 
+// ---------- PROCESS SINGLE URL ----------
 async function processSingleUrl(url) {
     const status = await isProtectionActive();
     if (!status.active) return;
@@ -93,6 +96,7 @@ async function processSingleUrl(url) {
     }
 }
 
+// ---------- LISTENER FOR RESULTS ----------
 chrome.runtime.onMessage.addListener((msg) => {
     if (msg.action === "display_result") {
         const { url, data, error } = msg;
@@ -101,9 +105,9 @@ chrome.runtime.onMessage.addListener((msg) => {
             return;
         }
 
-        // Only proceed if risk_score > THRESHOLD
+        // 🔴 IMPORTANT: Only proceed if risk_score > THRESHOLD
         if (data.risk_score <= THRESHOLD) {
-            // Safe URL – do nothing
+            console.log(`DeepShield: Safe URL – no action taken (${data.risk_score}%)`, url);
             return;
         }
 
@@ -114,6 +118,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     }
 });
 
+// ---------- SCAN EXISTING LINKS ----------
 async function scanExistingLinks() {
     const status = await isProtectionActive();
     if (!status.active) return;
@@ -131,6 +136,7 @@ async function scanExistingLinks() {
     });
 }
 
+// ---------- ACTIVE SCAN (from popup) ----------
 async function triggerActiveScan() {
     const status = await isProtectionActive();
     if (!status.active) {
@@ -156,6 +162,7 @@ async function triggerActiveScan() {
     showFloatingToast(`🔄 Scanning ${uniqueUrls.length} links...`, 'loading');
 }
 
+// ---------- FLOATING TOAST ----------
 function showFloatingToast(message, type) {
     let toast = document.getElementById('ds-toast');
     if (!toast) {
@@ -184,16 +191,16 @@ function showFloatingToast(message, type) {
     }, 6000);
 }
 
+// ---------- LISTEN FOR ACTIVE SCAN ----------
 chrome.runtime.onMessage.addListener((msg) => {
     if (msg.action === "trigger_active_scan") {
         triggerActiveScan();
     }
 });
 
-// Initial scan
+// ---------- INITIALIZATION ----------
 setTimeout(scanExistingLinks, 1500);
 
-// Dynamic link observer
 const observer = new MutationObserver((mutations) => {
     mutations.forEach(m => {
         m.addedNodes.forEach(node => {
