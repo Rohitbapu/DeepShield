@@ -1,20 +1,18 @@
 # ============================================================
-# DEEPSHIELD DLP V2.1 - BACKEND (VirusTotal + Groq XAI)
-# Deploy on Render.com
+# DEEPSHIELD DLP V2.3 - PURE GROQ AI (No External APIs)
 # Run: uvicorn backend_main:app --host 0.0.0.0 --port 10000
 # ============================================================
 
 import os
 import re
+import math
 import json
-import time
 import logging
 from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 from dotenv import load_dotenv
-import requests
 from groq import Groq
 
 # ---------- CONFIG ----------
@@ -23,15 +21,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-VT_API_KEY = os.getenv("VT_API_KEY")
 
 if not GROQ_API_KEY:
-    logger.error("GROQ_API_KEY missing! Set it in .env")
-if not VT_API_KEY:
-    logger.error("VT_API_KEY missing! Set it in .env")
+    logger.error("CRITICAL: GROQ_API_KEY missing!")
+    raise ValueError("GROQ_API_KEY environment variable is required")
 
 # ---------- INIT APP ----------
-app = FastAPI(title="DeepShield DLP API", version="2.1")
+app = FastAPI(title="DeepShield DLP - Pure Groq AI", version="2.3")
 
 app.add_middleware(
     CORSMiddleware,
@@ -43,121 +39,172 @@ app.add_middleware(
 # ---------- GROQ CLIENT ----------
 groq_client = Groq(api_key=GROQ_API_KEY)
 
-# ---------- VIRUSTOTAL RATE LIMITER ----------
-_last_vt_call = 0
-_vt_cache = {}
+# ---------- HELPER: Calculate Entropy ----------
+def calculate_entropy(text: str) -> float:
+    """Calculate Shannon entropy for domain randomness detection."""
+    if not text:
+        return 0
+    entropy = 0
+    for x in set(text):
+        p_x = float(text.count(x)) / len(text)
+        entropy += -p_x * math.log(p_x, 2)
+    return entropy
 
-def get_vt_score(url: str) -> int:
+# ---------- HELPER: Extract Heuristic Flags ----------
+def extract_heuristic_flags(url: str) -> list:
     """
-    Query VirusTotal API for a URL.
-    Returns a risk score (0-100).
-    Handles 4-lookups-per-minute rate limit.
+    Extract heuristic flags for the Groq prompt.
+    These are NOT used for scoring - only as context for Groq.
     """
-    global _last_vt_call
+    parsed = urlparse(url)
+    domain = parsed.netloc
+    path = parsed.path
 
-    # Check cache first
-    if url in _vt_cache:
-        logger.info(f"VT Cache hit for {url}")
-        return _vt_cache[url]
+    flags = []
 
-    # Enforce 15-second gap (60s / 4 = 15s)
-    now = time.time()
-    diff = now - _last_vt_call
-    if diff < 15:
-        wait_time = 15 - diff
-        logger.info(f"VT rate limit: waiting {wait_time:.1f}s")
-        time.sleep(wait_time)
+    # 1. Entropy check
+    domain_name = domain.split('.')[0] if '.' in domain else domain
+    entropy = calculate_entropy(domain_name)
+    if entropy > 3.8:
+        flags.append(f"High domain entropy ({entropy:.2f}) - suggests algorithmic generation (DGA)")
 
-    _last_vt_call = time.time()
+    # 2. IP address check
+    if re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', domain):
+        flags.append("Uses raw IP address instead of domain name - bypasses DNS filters")
 
-    try:
-        # Step 1: Submit URL for scanning
-        vt_url = "https://www.virustotal.com/api/v3/urls"
-        headers = {"x-apikey": VT_API_KEY}
-        response = requests.post(vt_url, headers=headers, data={"url": url})
+    # 3. Suspicious TLDs
+    suspicious_tlds = ['.top', '.xyz', '.click', '.download', '.review', '.loan', 
+                       '.men', '.win', '.bid', '.tk', '.ml', '.ga', '.cf']
+    for tld in suspicious_tlds:
+        if domain.endswith(tld):
+            flags.append(f"Suspicious TLD ({tld}) - commonly used for phishing")
+            break
 
-        if response.status_code != 200:
-            logger.error(f"VT submission failed: {response.status_code}")
-            return None
+    # 4. Suspicious keywords
+    keywords = ['login', 'verify', 'update', 'secure', 'account', 'banking', 
+                'paypal', 'auth', 'confirm', 'signin', 'reset', 'password']
+    found_keywords = [kw for kw in keywords if kw in url.lower()]
+    if found_keywords:
+        flags.append(f"Contains deceptive keywords: {', '.join(found_keywords[:3])}")
 
-        scan_id = response.json()["data"]["id"]
+    # 5. Subdomain count
+    subdomains = domain.split('.')
+    num_subdomains = len(subdomains) - 2 if len(subdomains) > 2 else 0
+    if num_subdomains > 2:
+        flags.append(f"Excessive subdomains ({num_subdomains}) - masquerading attempt")
 
-        # Step 2: Get analysis report
-        report_res = requests.get(
-            f"https://www.virustotal.com/api/v3/analyses/{scan_id}",
-            headers=headers
-        )
+    # 6. URL length
+    if len(url) > 100:
+        flags.append("Unusually long URL - likely obfuscated")
 
-        if report_res.status_code != 200:
-            logger.error(f"VT report fetch failed: {report_res.status_code}")
-            return None
+    if not flags:
+        flags.append("No obvious structural anomalies detected")
 
-        stats = report_res.json()["data"]["attributes"]["stats"]
-        malicious = stats.get("malicious", 0)
-        suspicious = stats.get("suspicious", 0)
-        undetected = stats.get("undetected", 1)
+    return flags
 
-        total = malicious + suspicious + undetected
-        score = int(((malicious + suspicious) / max(total, 1)) * 100)
+# ---------- THE GROQ AI PROMPT ----------
+def build_ai_prompt(url: str, flags: list) -> str:
+    flag_text = "\n".join([f"  - {f}" for f in flags])
 
-        # Cache the result
-        _vt_cache[url] = score
-        logger.info(f"VT score for {url}: {score}%")
-        return score
-
-    except Exception as e:
-        logger.error(f"VirusTotal error: {e}")
-        return None
-
-# ---------- GROQ XAI ENGINE ----------
-def get_groq_explanation(url: str, vt_score: int) -> dict:
-    """
-    Generates a human-readable explanation using Groq Llama-3.
-    Returns: { "short": "...", "detailed": "..." }
-    """
-    if vt_score is None:
-        vt_score = 50  # Unknown / fallback
-
-    # Build the prompt
     prompt = f"""
-You are DeepShield, an enterprise cybersecurity AI.
+You are DeepShield, a strict enterprise-grade cybersecurity AI.
 
-URL: {url}
-VirusTotal Malicious Probability: {vt_score}%
+**YOUR TASK:** Analyze this URL for phishing or malicious activity:
+{url}
 
-**TASK:**
-Write a JSON response with two fields:
-1. "short": A single, punchy sentence for a browser badge tooltip (max 60 characters).
-2. "detailed": A 2-3 sentence technical analysis for a security team, explaining WHY the URL is risky.
+**TECHNICAL TELEMETRY (Structural Analysis):**
+{flag_text}
 
-**GUIDELINES:**
-- If score > 60: Warn clearly. Use words like "phishing", "malicious", "dangerous".
-- If score 30-60: Say "suspicious" or "caution".
-- If score < 30: Say it looks safe.
-- Keep the tone professional and authoritative.
+**INSTRUCTIONS:**
+1. Based on the telemetry above, determine if this URL is phishing/malicious.
+2. Return ONLY a JSON object with these exact keys. No other text.
 
-**OUTPUT FORMAT (STRICT JSON):**
-{{"short": "...", "detailed": "..."}}
+**OUTPUT FORMAT:**
+{{
+  "risk_score": "integer 0-100",
+  "threat_level": "SAFE or WARNING or CRITICAL",
+  "short_explanation": "A single sentence for a browser badge (max 80 characters)",
+  "detailed_analysis": "A 2-3 sentence technical report for a security team"
+}}
+
+**SCORING GUIDELINES:**
+- 0-25: SAFE - No suspicious indicators, legitimate domain
+- 26-55: WARNING - Some anomalies, exercise caution
+- 56-100: CRITICAL - Strong evidence of phishing/malware
+
+**RULES:**
+- Be conservative. When in doubt, give a lower score.
+- Base your score on the flags above, not external knowledge.
+- If there are no flags, score 0-10 (SAFE).
+- Never guess. Only use the telemetry provided.
 """
+    return prompt
+
+# ---------- GROQ ANALYSIS FUNCTION ----------
+def analyze_with_groq(url: str) -> dict:
+    """Call Groq for URL analysis and return structured result."""
+    
+    # 1. Extract heuristic flags
+    flags = extract_heuristic_flags(url)
+    logger.info(f"Extracted flags for {url}: {flags}")
+
+    # 2. Build prompt
+    prompt = build_ai_prompt(url, flags)
+
+    # 3. Call Groq
     try:
         response = groq_client.chat.completions.create(
             model="llama3-8b-8192",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-            max_tokens=200,
+            messages=[
+                {"role": "system", "content": "You are DeepShield, a cybersecurity AI. Always respond with valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1,  # Low temperature for deterministic output
+            max_tokens=300,
             response_format={"type": "json_object"}
         )
+
         raw = response.choices[0].message.content.strip()
+        logger.info(f"Groq response: {raw[:200]}...")
+
+        # 4. Parse JSON
         result = json.loads(raw)
+
+        # 5. Validate and sanitize
+        risk_score = int(result.get("risk_score", 50))
+        if risk_score < 0 or risk_score > 100:
+            risk_score = 50
+
+        threat_level = result.get("threat_level", "WARNING")
+        if threat_level not in ["SAFE", "WARNING", "CRITICAL"]:
+            threat_level = "WARNING"
+
         return {
-            "short": result.get("short", "Suspicious link detected"),
-            "detailed": result.get("detailed", "No detailed analysis available.")
+            "risk_score": risk_score,
+            "threat_level": threat_level,
+            "short_explanation": result.get("short_explanation", "Suspicious link detected"),
+            "detailed_analysis": result.get("detailed_analysis", "No detailed analysis available."),
+            "heuristics_flagged": flags
         }
-    except Exception as e:
-        logger.error(f"Groq error: {e}")
+
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON parse error: {e}")
         return {
-            "short": "Suspicious link detected",
-            "detailed": f"VirusTotal score: {vt_score}%. AI explanation unavailable."
+            "risk_score": 50,
+            "threat_level": "WARNING",
+            "short_explanation": "Analysis unavailable",
+            "detailed_analysis": f"AI response was not valid JSON: {raw[:100] if 'raw' in locals() else 'Unknown error'}",
+            "heuristics_flagged": flags
+        }
+
+    except Exception as e:
+        logger.error(f"Groq API error: {e}")
+        return {
+            "risk_score": 30,
+            "threat_level": "WARNING",
+            "short_explanation": "Analysis temporarily unavailable",
+            "detailed_analysis": f"Groq API error: {str(e)}",
+            "heuristics_flagged": flags
         }
 
 # ---------- API MODELS ----------
@@ -173,57 +220,46 @@ class ScanRequest(BaseModel):
 class ScanResponse(BaseModel):
     url: str
     risk_score: int
-    threat_level: str          # SAFE / WARNING / CRITICAL
-    short_explanation: str     # For extension badge
-    detailed_analysis: str     # For landing page deep-dive
+    threat_level: str
+    short_explanation: str
+    detailed_analysis: str
+    heuristics_flagged: list
 
 # ---------- API ENDPOINT ----------
 @app.post("/api/v1/scan", response_model=ScanResponse)
 async def scan_url(payload: ScanRequest):
     url = payload.url
-    logger.info(f"Scanning: {url}")
+    logger.info(f"🔍 Scanning: {url}")
 
-    # 1. Get VirusTotal score
-    vt_score = get_vt_score(url)
-
-    # If VT fails, default to 60 (triggers a warning)
-    if vt_score is None:
-        logger.warning(f"VT failed for {url}, using default score 60")
-        vt_score = 60
-
-    # 2. Get Groq explanation
-    xai = get_groq_explanation(url, vt_score)
-
-    # 3. Determine threat level
-    if vt_score > 60:
-        threat_level = "CRITICAL"
-    elif vt_score > 30:
-        threat_level = "WARNING"
-    else:
-        threat_level = "SAFE"
+    # Analyze with Groq
+    result = analyze_with_groq(url)
 
     return ScanResponse(
         url=url,
-        risk_score=vt_score,
-        threat_level=threat_level,
-        short_explanation=xai.get("short", "Suspicious link detected"),
-        detailed_analysis=xai.get("detailed", "No detailed analysis available.")
+        risk_score=result["risk_score"],
+        threat_level=result["threat_level"],
+        short_explanation=result["short_explanation"],
+        detailed_analysis=result["detailed_analysis"],
+        heuristics_flagged=result["heuristics_flagged"]
     )
 
 # ---------- HEALTH CHECK ----------
 @app.get("/")
 async def health_check():
     return {
-        "status": "DeepShield DLP V2.1 Online",
-        "engines": {
-            "virustotal": "active" if VT_API_KEY else "inactive",
-            "groq_xai": "active" if GROQ_API_KEY else "inactive"
-        }
+        "status": "DeepShield DLP V2.3 Online",
+        "engine": "Groq Llama-3 (Pure AI)",
+        "api_key_configured": "Yes" if GROQ_API_KEY else "No"
     }
 
-# ---------- OPTIONAL: FORCE CACHE CLEAR ----------
-@app.post("/api/v1/clear-cache")
-async def clear_cache():
-    global _vt_cache
-    _vt_cache = {}
-    return {"status": "Cache cleared"}
+# ---------- OPTIONAL: DEBUG ENDPOINT ----------
+@app.post("/api/v1/debug")
+async def debug_url(payload: ScanRequest):
+    """Debug endpoint to see raw flags without Groq call."""
+    url = payload.url
+    flags = extract_heuristic_flags(url)
+    return {
+        "url": url,
+        "heuristics_flagged": flags,
+        "note": "This is only the heuristic analysis, not the AI score."
+    }
