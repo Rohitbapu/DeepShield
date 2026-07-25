@@ -1,7 +1,6 @@
 # ============================================================
-# DEEPSHIELD V2.10 - HYBRID: GOOGLE SAFE BROWSING + GEMINI
-# Safe Browsing provides real-time threat intelligence.
-# Gemini provides human-readable explanations.
+# DEEPSHIELD V2.12 - FINAL: SMART BRAND DETECTION
+# Legitimate domains are never flagged.
 # ============================================================
 
 import os
@@ -9,7 +8,6 @@ import re
 import math
 import json
 import logging
-import base64
 from urllib.parse import urlparse
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,81 +20,98 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ---------- API KEYS ----------
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 SAFE_BROWSING_API_KEY = os.getenv("SAFE_BROWSING_API_KEY")
 
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY is required")
-if not SAFE_BROWSING_API_KEY:
-    raise ValueError("SAFE_BROWSING_API_KEY is required")
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# ---------- SAFE DOMAIN WHITELIST ----------
-SAFE_DOMAINS = {
-    'google.com', 'google.co.in', 'gmail.com', 'youtube.com', 'github.com',
-    'stackoverflow.com', 'microsoft.com', 'apple.com', 'amazon.com',
-    'netflix.com', 'spotify.com', 'twitter.com', 'facebook.com',
-    'instagram.com', 'linkedin.com', 'reddit.com', 'wikipedia.org',
-    'bbc.com', 'cnn.com', 'nytimes.com', 'medium.com', 'dev.to',
-    'vercel.com', 'netlify.com', 'render.com', 'heroku.com',
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+# 1. BRAND DATABASE
+BRANDS = {
+    'apple': {
+        'keywords': ['apple', 'icloud', 'iphone', 'macbook', 'appstore', 'appleid'],
+        'legit_domains': ['apple.com', 'icloud.com', 'apple.com.cn', 'icloud.com.cn']
+    },
+    'paypal': {
+        'keywords': ['paypal', 'paypal.com', 'paypai'],
+        'legit_domains': ['paypal.com', 'paypal.cn', 'paypal.com.cn']
+    },
+    'microsoft': {
+        'keywords': ['microsoft', 'office', 'outlook', 'onedrive', 'azure'],
+        'legit_domains': ['microsoft.com', 'office.com', 'outlook.com', 'azure.com']
+    },
+    'google': {
+        'keywords': ['google', 'gmail', 'youtube', 'android', 'chrome'],
+        'legit_domains': ['google.com', 'gmail.com', 'youtube.com']
+    },
+    'amazon': {
+        'keywords': ['amazon', 'aws', 'prime', 'kindle'],
+        'legit_domains': ['amazon.com', 'aws.amazon.com', 'primevideo.com']
+    },
+    'facebook': {
+        'keywords': ['facebook', 'fb', 'meta', 'instagram', 'whatsapp'],
+        'legit_domains': ['facebook.com', 'instagram.com', 'whatsapp.com', 'meta.com']
+    },
+    'netflix': {
+        'keywords': ['netflix'],
+        'legit_domains': ['netflix.com']
+    },
+    'twitter': {
+        'keywords': ['twitter', 'x'],
+        'legit_domains': ['twitter.com', 'x.com']
+    }
+}
+
+# 2. EXTRA SAFE DOMAINS (not brand-specific)
+EXTRA_SAFE_DOMAINS = {
+    'github.com', 'stackoverflow.com', 'wikipedia.org', 'medium.com',
+    'dev.to', 'vercel.com', 'netlify.com', 'render.com', 'heroku.com',
     'tailwindcss.com', 'reactjs.org', 'python.org', 'docker.com'
 }
 
-def is_safe_domain(url: str) -> bool:
+# 3. SUSPICIOUS TLDs
+SUSPICIOUS_TLDS = [
+    '.top', '.xyz', '.click', '.download', '.review', '.loan',
+    '.men', '.win', '.bid', '.tk', '.ml', '.ga', '.cf',
+    '.work', '.date', '.party', '.racing', '.online', '.site',
+    '.live', '.tech', '.fun', '.shop', '.store', '.website'
+]
+
+# 4. DECEPTIVE KEYWORDS
+DECEPTIVE_KEYWORDS = [
+    'login', 'verify', 'update', 'secure', 'account', 'auth',
+    'confirm', 'signin', 'reset', 'password', 'validate',
+    'authenticate', 'recover', 'unlock', 'alert', 'notice'
+]
+
+# ============================================================
+# HELPER FUNCTIONS
+# ============================================================
+
+def get_domain(url: str) -> str:
     parsed = urlparse(url)
     domain = parsed.netloc.lower()
     if domain.startswith('www.'):
         domain = domain[4:]
-    return domain in SAFE_DOMAINS
+    return domain
 
-# ---------- GOOGLE SAFE BROWSING CHECK ----------
-def check_safe_browsing(url: str) -> dict:
-    """
-    Check URL against Google Safe Browsing API.
-    Returns: { "malicious": bool, "threats": list, "score": int }
-    """
-    API_URL = f"https://safebrowsing.googleapis.com/v4/threatMatches:find?key={SAFE_BROWSING_API_KEY}"
-    
-    payload = {
-        "client": {
-            "clientId": "deepshield-dlp",
-            "clientVersion": "2.0"
-        },
-        "threatInfo": {
-            "threatTypes": [
-                "MALWARE",
-                "SOCIAL_ENGINEERING",
-                "UNWANTED_SOFTWARE",
-                "POTENTIALLY_HARMFUL_APPLICATION"
-            ],
-            "platformTypes": ["ANY_PLATFORM"],
-            "threatEntryTypes": ["URL"],
-            "threatEntries": [{"url": url}]
-        }
-    }
+def is_legitimate_domain(domain: str) -> bool:
+    """Check if domain is legitimate for any brand."""
+    for brand, data in BRANDS.items():
+        for legit in data['legit_domains']:
+            if domain == legit or domain.endswith('.' + legit):
+                return True
+    return domain in EXTRA_SAFE_DOMAINS
 
-    try:
-        response = requests.post(API_URL, json=payload, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            if "matches" in data and data["matches"]:
-                threats = [m["threatType"] for m in data["matches"]]
-                return {
-                    "malicious": True,
-                    "threats": threats,
-                    "score": 85 + min(len(threats) * 5, 15)  # 85-100
-                }
-        return {"malicious": False, "threats": [], "score": 0}
-    except Exception as e:
-        logger.error(f"Safe Browsing error: {e}")
-        return {"malicious": False, "threats": [], "score": 0}
-
-# ---------- HEURISTIC FLAGS ----------
 def calculate_entropy(text: str) -> float:
     if not text:
         return 0
@@ -106,104 +121,230 @@ def calculate_entropy(text: str) -> float:
         entropy += -p_x * math.log(p_x, 2)
     return entropy
 
-def extract_heuristic_flags(url: str) -> list:
-    parsed = urlparse(url)
-    domain = parsed.netloc
-    domain_name = domain.split('.')[0] if '.' in domain else domain
-    path = parsed.path
+def check_brand_impersonation(domain: str, url: str) -> tuple:
+    """Returns (brand_name, risk_score) if impersonation detected."""
+    # First, if the domain is legitimate, return safe
+    if is_legitimate_domain(domain):
+        return None, 0
 
+    # Check each brand
+    for brand, data in BRANDS.items():
+        # 1. Check if any brand keyword appears in URL
+        brand_mentioned = any(kw in url.lower() for kw in data['keywords'])
+        if not brand_mentioned:
+            continue
+
+        # 2. Check if domain is NOT in legitimate list
+        # We already checked above, but double-check
+        legit = data['legit_domains']
+        if any(domain == d or domain.endswith('.' + d) for d in legit):
+            continue  # legitimate, skip
+
+        # 3. Impersonation confirmed
+        return brand, 45  # High risk
+
+    return None, 0
+
+def check_typosquatting(domain: str) -> tuple:
+    """Check if domain is a typosquat."""
+    known_domains = [
+        'google.com', 'facebook.com', 'amazon.com', 'apple.com', 'microsoft.com',
+        'paypal.com', 'netflix.com', 'twitter.com', 'linkedin.com', 'gmail.com',
+        'icloud.com', 'github.com'
+    ]
+    domain_clean = domain.split('.')[0]  # remove TLD
+    for known in known_domains:
+        known_clean = known.split('.')[0]
+        if domain_clean == known_clean:
+            return False, 0
+        # Check if known is a substring and length difference is small
+        if known_clean in domain_clean and len(domain_clean) > len(known_clean) + 2:
+            return True, 25
+        if domain_clean in known_clean and len(known_clean) > len(domain_clean) + 2:
+            return True, 25
+        # Check common typos: repeated letters
+        if re.search(r'(.)\1{2,}', domain_clean):
+            return True, 20
+    return False, 0
+
+def check_suspicious_patterns(url: str, domain: str) -> tuple:
+    score = 0
     flags = []
 
+    # Entropy
+    domain_name = domain.split('.')[0] if '.' in domain else domain
     entropy = calculate_entropy(domain_name)
     if entropy > 3.8:
-        flags.append(f"High domain entropy ({entropy:.2f}) – algorithmic generation")
+        score += 20
+        flags.append(f"High entropy ({entropy:.2f})")
 
+    # IP
     if re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', domain):
-        flags.append("Uses raw IP address – bypasses DNS filters")
+        score += 30
+        flags.append("Raw IP address")
 
-    suspicious_tlds = ['.top', '.xyz', '.click', '.download', '.review', '.loan',
-                       '.men', '.win', '.bid', '.tk', '.ml', '.ga', '.cf']
-    for tld in suspicious_tlds:
+    # TLD
+    for tld in SUSPICIOUS_TLDS:
         if domain.endswith(tld):
-            flags.append(f"Suspicious TLD ({tld}) – often used in phishing")
+            score += 25
+            flags.append(f"Suspicious TLD ({tld})")
             break
 
-    brands = ['paypal', 'amazon', 'apple', 'microsoft', 'google', 'netflix', 'facebook']
-    found_brands = [b for b in brands if b in url.lower()]
-    if found_brands:
-        flags.append(f"Brand impersonation: {', '.join(found_brands[:2])}")
+    # Keywords
+    found = [kw for kw in DECEPTIVE_KEYWORDS if kw in url.lower()]
+    if found:
+        score += min(20, len(found) * 5)
+        flags.append(f"Deceptive: {', '.join(found[:3])}")
 
-    keywords = ['login', 'verify', 'update', 'secure', 'account', 'auth', 'confirm', 'signin', 'reset', 'password']
-    found_keywords = [kw for kw in keywords if kw in url.lower()]
-    if found_keywords:
-        flags.append(f"Deceptive keywords: {', '.join(found_keywords[:3])}")
+    # Subdomains
+    parts = domain.split('.')
+    if len(parts) > 3:
+        score += min(20, (len(parts)-2)*5)
+        flags.append(f"Excessive subdomains ({len(parts)-2})")
 
-    subdomains = domain.split('.')
-    num_subdomains = len(subdomains) - 2 if len(subdomains) > 2 else 0
-    if num_subdomains > 2:
-        flags.append(f"Excessive subdomains ({num_subdomains})")
-
+    # Length
     if len(url) > 100:
-        flags.append(f"Unusually long URL ({len(url)} chars)")
+        score += 10
+        flags.append(f"Long URL ({len(url)})")
 
-    if not flags:
-        flags.append("No obvious structural anomalies detected")
+    # Special chars
+    special = len(re.findall(r'[^a-zA-Z0-9\-\.\/:]', url))
+    if special > 5:
+        score += 10
+        flags.append(f"Special chars ({special})")
 
-    return flags
+    return min(score, 100), flags
 
-# ---------- GEMINI EXPLANATION ----------
-def generate_gemini_explanation(url: str, risk_score: int, flags: list, sb_result: dict) -> dict:
+# ============================================================
+# SAFE BROWSING CHECK
+# ============================================================
+
+def check_safe_browsing(url: str) -> dict:
+    if not SAFE_BROWSING_API_KEY:
+        return {"malicious": False, "threats": [], "score": 0}
+    api_url = f"https://safebrowsing.googleapis.com/v4/threatMatches:find?key={SAFE_BROWSING_API_KEY}"
+    payload = {
+        "client": {"clientId": "deepshield", "clientVersion": "2.0"},
+        "threatInfo": {
+            "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE"],
+            "platformTypes": ["ANY_PLATFORM"],
+            "threatEntryTypes": ["URL"],
+            "threatEntries": [{"url": url}]
+        }
+    }
+    try:
+        response = requests.post(api_url, json=payload, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if "matches" in data:
+                threats = [m["threatType"] for m in data["matches"]]
+                return {"malicious": True, "threats": threats, "score": 90}
+    except Exception as e:
+        logger.error(f"Safe Browsing error: {e}")
+    return {"malicious": False, "threats": [], "score": 0}
+
+# ============================================================
+# GEMINI EXPLANATION
+# ============================================================
+
+def generate_gemini_explanation(url: str, risk_score: int, flags: list, sb: dict) -> dict:
     flag_text = "\n".join([f"  - {f}" for f in flags])
-    threat_text = ", ".join(sb_result.get("threats", [])) if sb_result.get("malicious") else "None detected"
-
     prompt = f"""
-You are DeepShield, an enterprise cybersecurity AI.
+You are DeepShield. URL: {url}
+Risk Score: {risk_score}/100
+Safe Browsing Threats: {', '.join(sb.get('threats', [])) if sb.get('malicious') else 'None'}
+Flags: {flag_text}
 
-**URL:** {url}
-**Risk Score:** {risk_score}/100
-**Safe Browsing Threats:** {threat_text}
+Return JSON: {{"short": "one sentence", "detailed": "2-3 sentences"}}
 
-**Technical Flags:**
-{flag_text}
-
-**TASK:** Write a concise explanation.
-Return JSON: {{"short": "one sentence for badge (max 80 chars)", "detailed": "2-3 sentence technical analysis"}}
-
-**Guidelines:**
-- Score 0-15: SAFE – reassuring, no threats
-- Score 16-40: CAUTION – some concerns
-- Score 41-100: DANGEROUS – clear phishing/malware
-
-**OUTPUT FORMAT (STRICT JSON):**
+- Score 0-15: SAFE, reassuring
+- Score 16-40: CAUTION, some concerns
+- Score 41-100: DANGEROUS, clear phishing
 """
     try:
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
-            config={
-                "response_mime_type": "application/json",
-                "temperature": 0.0,
-                "max_output_tokens": 300,
-            }
+            config={"response_mime_type": "application/json", "temperature": 0.0, "max_output_tokens": 300}
         )
         raw = response.text.strip()
         if raw.startswith("```json"):
             raw = raw.replace("```json", "").replace("```", "").strip()
-        elif raw.startswith("```"):
-            raw = raw.replace("```", "").strip()
         result = json.loads(raw)
         return {
             "short": result.get("short", f"Risk: {risk_score}%"),
             "detailed": result.get("detailed", "Analysis unavailable.")
         }
-    except Exception as e:
-        logger.error(f"Gemini error: {e}")
+    except:
+        return {"short": f"Risk: {risk_score}%", "detailed": f"Flags: {', '.join(flags)}"}
+
+# ============================================================
+# MAIN SCAN ENGINE
+# ============================================================
+
+def scan_url_comprehensive(url: str) -> dict:
+    domain = get_domain(url)
+    logger.info(f"Scanning: {url} (domain: {domain})")
+
+    # 1. Check if domain is legitimate
+    if is_legitimate_domain(domain):
         return {
-            "short": f"Risk: {risk_score}%",
-            "detailed": f"Risk score: {risk_score}%. Flags: {', '.join(flags)}"
+            "risk_score": 0,
+            "threat_level": "SAFE",
+            "flags": ["✅ Legitimate domain"],
+            "brand": None,
+            "sb": {"malicious": False, "threats": []}
         }
 
-# ---------- API ----------
+    # 2. Brand impersonation
+    brand, brand_score = check_brand_impersonation(domain, url)
+
+    # 3. Typosquatting
+    typosquat, typoscore = check_typosquatting(domain)
+
+    # 4. Suspicious patterns
+    pattern_score, flags = check_suspicious_patterns(url, domain)
+
+    # 5. Safe Browsing
+    sb = check_safe_browsing(url)
+
+    # 6. Calculate final score
+    final_score = brand_score + typoscore + pattern_score
+    if sb["malicious"]:
+        final_score = max(final_score, 90)
+        flags.insert(0, "🚨 Google Safe Browsing: Malicious")
+
+    if brand_score > 0:
+        flags.insert(0, f"🚨 Brand impersonation: {brand}")
+
+    if typosquat:
+        flags.insert(0, "⚠️ Typosquatting detected")
+
+    final_score = min(final_score, 100)
+
+    if final_score > 60:
+        threat_level = "CRITICAL"
+    elif final_score > 35:
+        threat_level = "WARNING"
+    elif final_score > 15:
+        threat_level = "CAUTION"
+    else:
+        threat_level = "SAFE"
+
+    flags.insert(0, f"📊 Score: {final_score}% - {threat_level}")
+
+    return {
+        "risk_score": final_score,
+        "threat_level": threat_level,
+        "flags": flags,
+        "brand": brand,
+        "sb": sb
+    }
+
+# ============================================================
+# API
+# ============================================================
+
 class ScanRequest(BaseModel):
     url: str
     @field_validator('url')
@@ -220,78 +361,29 @@ class ScanResponse(BaseModel):
     detailed_analysis: str
     heuristics_flagged: list
     safe_browsing_threats: list
+    brand_detected: str = None
 
 @app.post("/api/v1/scan", response_model=ScanResponse)
 async def scan_url(payload: ScanRequest):
     url = payload.url
-    logger.info(f"Scanning: {url}")
-
-    # 1. Check whitelist
-    if is_safe_domain(url):
-        return ScanResponse(
-            url=url,
-            risk_score=0,
-            threat_level="SAFE",
-            short_explanation="✅ Known safe domain.",
-            detailed_analysis="This domain is whitelisted as a trusted service.",
-            heuristics_flagged=[],
-            safe_browsing_threats=[]
-        )
-
-    # 2. Extract heuristic flags
-    flags = extract_heuristic_flags(url)
-
-    # 3. Google Safe Browsing check (REAL threat intelligence)
-    sb_result = check_safe_browsing(url)
-
-    # 4. Calculate FINAL score
-    if sb_result["malicious"]:
-        # Safe Browsing says it's malicious – HIGH SCORE
-        final_score = sb_result["score"]
-    else:
-        # Not in Safe Browsing – use heuristic estimate (conservative)
-        flags_count = len([f for f in flags if "suspicious" in f.lower() or "entropy" in f.lower() or "impersonation" in f.lower()])
-        if flags_count >= 3:
-            final_score = 60
-        elif flags_count >= 2:
-            final_score = 45
-        elif flags_count >= 1:
-            final_score = 25
-        else:
-            final_score = 5
-
-    # 5. Determine threat level
-    if final_score > 60:
-        threat_level = "CRITICAL"
-    elif final_score > 35:
-        threat_level = "WARNING"
-    elif final_score > 15:
-        threat_level = "CAUTION"
-    else:
-        threat_level = "SAFE"
-
-    # 6. Gemini explanation
-    xai = generate_gemini_explanation(url, final_score, flags, sb_result)
-
+    result = scan_url_comprehensive(url)
+    xai = generate_gemini_explanation(url, result["risk_score"], result["flags"], result["sb"])
     return ScanResponse(
         url=url,
-        risk_score=final_score,
-        threat_level=threat_level,
+        risk_score=result["risk_score"],
+        threat_level=result["threat_level"],
         short_explanation=xai["short"],
         detailed_analysis=xai["detailed"],
-        heuristics_flagged=flags,
-        safe_browsing_threats=sb_result.get("threats", [])
+        heuristics_flagged=result["flags"],
+        safe_browsing_threats=result["sb"].get("threats", []),
+        brand_detected=result.get("brand")
     )
 
 @app.get("/")
 async def health_check():
     return {
-        "status": "DeepShield V2.10 Online",
-        "engine": "Google Safe Browsing + Gemini AI",
-        "whitelist": "Active",
-        "features": [
-            "Real-time Safe Browsing checks",
-            "Heuristic analysis",
-            "Gemini explanation"
-        ]
+        "status": "DeepShield V2.12 Online",
+        "engine": "Smart Brand Detection + Heuristics + Safe Browsing",
+        "legitimate_domains": "Active",
+        "suspicious_tlds": len(SUSPICIOUS_TLDS)
     }
