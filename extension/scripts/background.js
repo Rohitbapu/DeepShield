@@ -2,7 +2,7 @@
 // DEEPSHIELD V2.7 - BACKGROUND SERVICE WORKER
 // ============================================================
 
-const API_URL = "https://YOUR-RENDER-URL.onrender.com/api/v1/scan";
+const API_URL = "https://deepshield-p6ux.onrender.com/api/v1/scan";
 const LANDING_PAGE = "https://rohitbapu.github.io/DeepShield";
 
 // Cache to avoid duplicate scans

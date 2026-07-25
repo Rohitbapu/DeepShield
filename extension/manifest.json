@@ -32,7 +32,7 @@
   ],
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": [
-    "https://YOUR-RENDER-URL.onrender.com/*",
+    "https://deepshield-p6ux.onrender.com/*",
     "<all_urls>"
   ]
 }

@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const allowBtn = document.getElementById('add-allowlist');
     const scanBtn = document.getElementById('active-scan-btn');
 
-    const API_URL = "https://YOUR-RENDER-URL.onrender.com";
+    const API_URL = "https://deepshield-p6ux.onrender.com";
 
     // 1. Check Backend Health
     fetch(`${API_URL}/`, { method: "GET" })
