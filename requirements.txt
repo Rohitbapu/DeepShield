@@ -3,4 +3,5 @@ uvicorn
 pydantic
 python-dotenv
 google-generativeai
-requests
+phishing-detection-py
+torch
