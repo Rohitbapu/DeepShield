@@ -1,16 +1,11 @@
 // ============================================================
-// DEEPSHIELD V2.1 - CONTENT SCRIPT (DOM VISUALIZER)
-// Scrapes links, injects floating badges, handles clicks
+// DEEPSHIELD V2.7 - CONTENT SCRIPT (DOM VISUALIZER)
 // ============================================================
 
 const BADGE_CLASS = 'ds-badge';
 const DANGER_CLASS = 'ds-danger';
-const PROCESSED_KEY = 'ds_processed_urls';
-
-// Track processed URLs to avoid duplicate badge injection
 let processedUrls = new Set();
 
-// ---------------------- CHECK PROTECTION STATUS ----------------------
 function isProtectionActive() {
     return new Promise((resolve) => {
         chrome.storage.local.get(['filterDisabled', 'allowlist'], (data) => {
@@ -30,20 +25,17 @@ function isProtectionActive() {
     });
 }
 
-// ---------------------- INJECT SCORE BADGE ----------------------
 function injectBadge(anchor, riskData) {
     const url = anchor.href;
     if (!url || processedUrls.has(url)) return;
 
     const score = riskData.risk_score || 0;
-    const isDanger = score > 40;
-    const isWarning = score > 30 && score <= 40;
+    const isDanger = score > 60;
+    const isWarning = score > 30 && score <= 60;
     const tooltip = riskData.short_explanation || "Suspicious link detected";
 
-    // Find all anchors with this exact URL
     const allMatchingAnchors = document.querySelectorAll(`a[href="${url}"]`);
     
-    // Highlight all matching anchors
     allMatchingAnchors.forEach(a => {
         if (isDanger) {
             a.classList.add(DANGER_CLASS);
@@ -55,7 +47,6 @@ function injectBadge(anchor, riskData) {
         }
     });
 
-    // Only inject badge on the FIRST anchor to avoid clutter
     if (anchor !== allMatchingAnchors[0]) {
         processedUrls.add(url);
         return;
@@ -63,36 +54,29 @@ function injectBadge(anchor, riskData) {
 
     processedUrls.add(url);
 
-    // Create badge
     const badge = document.createElement('span');
     badge.className = `ds-badge ${isDanger ? 'ds-badge-danger' : isWarning ? 'ds-badge-warning' : 'ds-badge-safe'}`;
-    
     const emoji = isDanger ? '🚨' : isWarning ? '⚠️' : '✅';
     badge.textContent = `${emoji} ${score}%`;
     badge.title = tooltip;
     
-    // Click handler: opens deep-dive report
     badge.addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
         chrome.runtime.sendMessage({ action: "open_report", url: url });
     });
 
-    // Insert badge after the anchor
     anchor.parentNode.insertBefore(badge, anchor.nextSibling);
 }
 
-// ---------------------- PROCESS SINGLE URL (Passive) ----------------------
 async function processSingleUrl(url) {
     const status = await isProtectionActive();
     if (!status.active) return;
-    
     if (url && url.startsWith('http') && !processedUrls.has(url)) {
         chrome.runtime.sendMessage({ action: "check_url", url: url });
     }
 }
 
-// ---------------------- LISTENER FOR RESULTS (from background) ----------------------
 chrome.runtime.onMessage.addListener((msg) => {
     if (msg.action === "display_result") {
         const { url, data, error } = msg;
@@ -107,7 +91,6 @@ chrome.runtime.onMessage.addListener((msg) => {
     }
 });
 
-// ---------------------- SCAN EXISTING LINKS (Passive) ----------------------
 async function scanExistingLinks() {
     const status = await isProtectionActive();
     if (!status.active) return;
@@ -120,18 +103,15 @@ async function scanExistingLinks() {
             urls.add(href);
         }
     });
-    
-    // Send each unique URL to be scanned
     urls.forEach(url => {
         chrome.runtime.sendMessage({ action: "check_url", url: url });
     });
 }
 
-// ---------------------- ACTIVE SCAN (Triggered by Popup) ----------------------
 async function triggerActiveScan() {
     const status = await isProtectionActive();
     if (!status.active) {
-        showFloatingToast('⚠️ Protection is disabled or this site is allowlisted.', 'warning');
+        showFloatingToast('⚠️ Protection is disabled or site is allowlisted.', 'warning');
         return;
     }
 
@@ -144,22 +124,15 @@ async function triggerActiveScan() {
         }
     });
     const uniqueUrls = Array.from(urls);
-    
     if (uniqueUrls.length === 0) {
         showFloatingToast('No external links found on this page.', 'info');
         return;
     }
 
-    // Send batch to background
-    chrome.runtime.sendMessage({
-        action: "active_scan",
-        urls: uniqueUrls
-    });
-
+    chrome.runtime.sendMessage({ action: "active_scan", urls: uniqueUrls });
     showFloatingToast(`🔄 Scanning ${uniqueUrls.length} links...`, 'loading');
 }
 
-// ---------------------- FLOATING TOAST (UI Feedback) ----------------------
 function showFloatingToast(message, type) {
     let toast = document.getElementById('ds-toast');
     if (!toast) {
@@ -170,8 +143,7 @@ function showFloatingToast(message, type) {
             background: #1e293b; color: white; padding: 12px 24px;
             border-radius: 12px; font-family: system-ui; font-size: 14px;
             box-shadow: 0 8px 30px rgba(0,0,0,0.8); border: 1px solid #334155;
-            transition: opacity 0.3s; max-width: 400px;
-            pointer-events: none;
+            transition: opacity 0.3s; max-width: 400px; pointer-events: none;
         `;
         document.body.appendChild(toast);
     }
@@ -179,12 +151,7 @@ function showFloatingToast(message, type) {
     toast.style.display = 'block';
     toast.style.opacity = '1';
     
-    const bgColors = {
-        loading: '#1e3a8a',
-        warning: '#7f1d1d',
-        info: '#1e293b',
-        success: '#14532d'
-    };
+    const bgColors = { loading: '#1e3a8a', warning: '#7f1d1d', info: '#1e293b', success: '#14532d' };
     toast.style.background = bgColors[type] || '#1e293b';
     
     clearTimeout(toast._timeout);
@@ -194,18 +161,14 @@ function showFloatingToast(message, type) {
     }, 6000);
 }
 
-// ---------------------- LISTEN FOR ACTIVE SCAN COMMAND (from popup) ----------------------
 chrome.runtime.onMessage.addListener((msg) => {
     if (msg.action === "trigger_active_scan") {
         triggerActiveScan();
     }
 });
 
-// ---------------------- INITIALIZATION ----------------------
-// 1. Scan existing links on load (with delay to allow page to render)
 setTimeout(scanExistingLinks, 1500);
 
-// 2. Watch for dynamically added links (MutationObserver)
 const observer = new MutationObserver((mutations) => {
     mutations.forEach(m => {
         m.addedNodes.forEach(node => {

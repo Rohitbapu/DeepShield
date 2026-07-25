@@ -1,7 +1,7 @@
 {
   "name": "DeepShield DLP",
   "description": "Enterprise-grade AI Phishing & Malicious URL Detector",
-  "version": "2.1",
+  "version": "2.7",
   "manifest_version": 3,
   "icons": {
     "16": "images/icon-16.png",

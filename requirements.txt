@@ -1,5 +1,5 @@
 fastapi
 uvicorn
 python-multipart
-requests
+google-genai
 python-dotenv

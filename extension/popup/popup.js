@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const allowBtn = document.getElementById('add-allowlist');
     const scanBtn = document.getElementById('active-scan-btn');
 
-    const API_URL = "https://YOUR-RENDER-URL.onrender.com"; // Used only for health check
+    const API_URL = "https://YOUR-RENDER-URL.onrender.com";
 
     // 1. Check Backend Health
     fetch(`${API_URL}/`, { method: "GET" })
@@ -46,7 +46,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     scanBtn.innerText = "🔍 Scan This Page Now";
                     scanBtn.disabled = false;
                 }, 5000);
-                // Close popup after triggering
                 setTimeout(() => window.close(), 800);
             }
         });

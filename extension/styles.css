@@ -1,6 +1,5 @@
 /* DeepShield DLP - Injected Styles */
 
-/* --- Highlight for Dangerous Links --- */
 a.ds-danger {
     background-color: #450a0a !important;
     color: #fca5a5 !important;
@@ -15,7 +14,6 @@ a.ds-danger:hover {
     background-color: #7f1d1d !important;
 }
 
-/* --- Floating Badges --- */
 .ds-badge {
     display: inline-block;
     margin-left: 6px;

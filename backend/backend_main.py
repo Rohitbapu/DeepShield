@@ -1,6 +1,6 @@
 # ============================================================
-# DEEPSHIELD V2.5 - NVIDIA NIM (Gemma 2 27B) + Deterministic Scoring
-# Uses NVIDIA's free API with Gemma 2 27B for explanations
+# DEEPSHIELD DLP V2.7 - GEMINI-ONLY EDITION
+# Optimized for free tier: deterministic scoring + Gemini explanation
 # ============================================================
 
 import os
@@ -13,24 +13,34 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 from dotenv import load_dotenv
-import requests
+from google import genai
 
+# ---------- CONFIG ----------
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ---------- CONFIG ----------
-NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
-NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    logger.error("GEMINI_API_KEY missing! Set it in .env")
+    raise ValueError("GEMINI_API_KEY environment variable is required")
 
-if not NVIDIA_API_KEY:
-    logger.warning("NVIDIA_API_KEY not set! Using fallback.")
+# ---------- INIT APP ----------
+app = FastAPI(title="DeepShield DLP - Gemini AI", version="2.7")
 
-app = FastAPI(title="DeepShield DLP - NVIDIA NIM", version="2.5")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ---------- GEMINI CLIENT ----------
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ---------- DETERMINISTIC SCORING ENGINE ----------
 def calculate_entropy(text: str) -> float:
+    """Calculate Shannon entropy for randomness detection."""
     if not text:
         return 0
     entropy = 0
@@ -40,7 +50,10 @@ def calculate_entropy(text: str) -> float:
     return entropy
 
 def get_deterministic_score_and_flags(url: str) -> tuple:
-    """Returns (risk_score 0-100, list_of_flags) based on fixed rules."""
+    """
+    Returns (risk_score 0-100, list_of_flags) based on fixed rules.
+    This is 100% consistent and never changes for the same URL.
+    """
     parsed = urlparse(url)
     domain = parsed.netloc
     domain_name = domain.split('.')[0] if '.' in domain else domain
@@ -52,12 +65,12 @@ def get_deterministic_score_and_flags(url: str) -> tuple:
     entropy = calculate_entropy(domain_name)
     if entropy > 3.8:
         score += 20
-        flags.append(f"High entropy ({entropy:.2f}) indicates algorithmic generation (DGA)")
+        flags.append(f"High entropy ({entropy:.2f}) suggests algorithmic generation (DGA)")
 
     # 2. IP address (max +30)
     if re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', domain):
         score += 30
-        flags.append("Uses raw IP address instead of domain name")
+        flags.append("Uses raw IP address instead of domain name (bypasses DNS filters)")
 
     # 3. Suspicious TLDs (max +20)
     suspicious_tlds = ['.top', '.xyz', '.click', '.download', '.review', '.loan', 
@@ -80,12 +93,12 @@ def get_deterministic_score_and_flags(url: str) -> tuple:
     num_subdomains = len(subdomains) - 2 if len(subdomains) > 2 else 0
     if num_subdomains > 2:
         score += min(15, num_subdomains * 5)
-        flags.append(f"Excessive subdomains ({num_subdomains})")
+        flags.append(f"Excessive subdomains ({num_subdomains}) - masquerading attempt")
 
     # 6. URL length (max +10)
     if len(url) > 100:
         score += 10
-        flags.append("Unusually long URL")
+        flags.append("Unusually long URL - likely obfuscated")
 
     # Cap at 100
     score = min(score, 100)
@@ -96,16 +109,13 @@ def get_deterministic_score_and_flags(url: str) -> tuple:
 
     return score, flags
 
-# ---------- NVIDIA NIM EXPLANATION GENERATOR ----------
-def generate_nvidia_explanation(url: str, risk_score: int, flags: list) -> dict:
-    """Uses NVIDIA NIM (Gemma 2 27B) to generate explanation."""
+# ---------- GEMINI EXPLANATION GENERATOR ----------
+def generate_gemini_explanation(url: str, risk_score: int, flags: list) -> dict:
+    """
+    Uses Gemini to generate human-readable explanation.
+    Falls back to heuristic-only if Gemini fails.
+    """
     
-    if not NVIDIA_API_KEY:
-        return {
-            "short": f"Risk score: {risk_score}%",
-            "detailed": f"Risk score: {risk_score}%. Flags: {', '.join(flags)}"
-        }
-
     flag_text = "\n".join([f"  - {f}" for f in flags])
 
     prompt = f"""
@@ -123,73 +133,53 @@ Return a JSON with two fields:
 2. "detailed": A 2-3 sentence technical analysis explaining why the URL is risky or safe.
 
 Guidelines:
-- If score > 60: be clearly alarming.
+- If score > 60: be clearly alarming, mention specific flags.
 - If score 30-60: express caution.
-- If score < 30: reassure safety.
+- If score < 30: reassure safety, explain why it's safe.
 - Base your explanation strictly on the flags above.
 - Keep tone professional and authoritative.
 
 OUTPUT FORMAT (STRICT JSON):
 {{"short": "...", "detailed": "..."}}
 """
-    headers = {
-        "Authorization": f"Bearer {NVIDIA_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "model": "google/gemma-2-27b-it",
-        "messages": [
-            {"role": "system", "content": "You are DeepShield. Always respond with valid JSON only."},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.0,
-        "max_tokens": 300,
-        "top_p": 0.95,
-        "stream": False
-    }
-
     try:
-        response = requests.post(NVIDIA_URL, headers=headers, json=payload, timeout=15)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",  # Fast, efficient, free
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+                "temperature": 0.0,    # Consistent output
+                "max_output_tokens": 300,
+            }
+        )
         
-        if response.status_code == 200:
-            data = response.json()
-            raw = data["choices"][0]["message"]["content"].strip()
+        raw = response.text.strip()
+        logger.info(f"Gemini response: {raw[:200]}...")
+        
+        # Clean markdown if present
+        if raw.startswith("```json"):
+            raw = raw.replace("```json", "").replace("```", "").strip()
+        elif raw.startswith("```"):
+            raw = raw.replace("```", "").strip()
             
-            # Try to parse JSON (handle markdown if present)
-            if raw.startswith("```json"):
-                raw = raw.replace("```json", "").replace("```", "").strip()
-            elif raw.startswith("```"):
-                raw = raw.replace("```", "").strip()
-            
-            result = json.loads(raw)
-            return {
-                "short": result.get("short", f"Risk score: {risk_score}%"),
-                "detailed": result.get("detailed", f"Risk score: {risk_score}%. Flags: {', '.join(flags)}")
-            }
-        else:
-            logger.error(f"NVIDIA API error: {response.status_code} - {response.text}")
-            return {
-                "short": f"Risk score: {risk_score}%",
-                "detailed": f"Risk score: {risk_score}%. NVIDIA API unavailable. Flags: {', '.join(flags)}"
-            }
-            
-    except requests.exceptions.Timeout:
-        logger.error("NVIDIA API timeout")
+        result = json.loads(raw)
         return {
-            "short": f"Risk score: {risk_score}%",
-            "detailed": f"Risk score: {risk_score}%. Explanation timeout."
+            "short": result.get("short", f"Risk score: {risk_score}%"),
+            "detailed": result.get("detailed", f"Risk score: {risk_score}%. Flags: {', '.join(flags)}")
         }
+        
     except Exception as e:
-        logger.error(f"NVIDIA API error: {e}")
+        logger.error(f"Gemini error: {e}")
+        # Fallback: use heuristic-only explanation
         return {
             "short": f"Risk score: {risk_score}%",
-            "detailed": f"Risk score: {risk_score}%. Error: {str(e)[:100]}"
+            "detailed": f"Risk score: {risk_score}%. Technical flags: {', '.join(flags)}"
         }
 
-# ---------- API ----------
+# ---------- API MODELS ----------
 class ScanRequest(BaseModel):
     url: str
+
     @field_validator('url')
     def validate_url(cls, v):
         if not v.startswith(('http://', 'https://')):
@@ -204,12 +194,13 @@ class ScanResponse(BaseModel):
     detailed_analysis: str
     heuristics_flagged: list
 
+# ---------- API ENDPOINT ----------
 @app.post("/api/v1/scan", response_model=ScanResponse)
 async def scan_url(payload: ScanRequest):
     url = payload.url
-    logger.info(f"Scanning: {url}")
+    logger.info(f"🔍 Scanning: {url}")
 
-    # 1. Deterministic scoring (always the same for the same URL)
+    # 1. Deterministic scoring (always consistent)
     risk_score, flags = get_deterministic_score_and_flags(url)
 
     # 2. Threat level
@@ -220,8 +211,8 @@ async def scan_url(payload: ScanRequest):
     else:
         threat_level = "SAFE"
 
-    # 3. NVIDIA explanation
-    xai = generate_nvidia_explanation(url, risk_score, flags)
+    # 3. Gemini explanation (with fallback)
+    xai = generate_gemini_explanation(url, risk_score, flags)
 
     return ScanResponse(
         url=url,
@@ -232,11 +223,26 @@ async def scan_url(payload: ScanRequest):
         heuristics_flagged=flags
     )
 
+# ---------- HEALTH CHECK ----------
 @app.get("/")
 async def health_check():
     return {
-        "status": "DeepShield V2.5 Online",
-        "engine": "NVIDIA NIM (Gemma 2 27B)",
-        "nvidia_api_configured": "Yes" if NVIDIA_API_KEY else "No",
-        "score_method": "rule-based (consistent)"
+        "status": "DeepShield DLP V2.7 Online",
+        "engine": "Google Gemini 2.5 Flash",
+        "api_key_configured": "Yes" if GEMINI_API_KEY else "No",
+        "score_method": "rule-based (consistent, deterministic)",
+        "fallback_enabled": "Yes"
+    }
+
+# ---------- DEBUG ENDPOINT ----------
+@app.post("/api/v1/debug")
+async def debug_url(payload: ScanRequest):
+    """Debug endpoint to see raw flags without Gemini call."""
+    url = payload.url
+    score, flags = get_deterministic_score_and_flags(url)
+    return {
+        "url": url,
+        "risk_score": score,
+        "heuristics_flagged": flags,
+        "note": "This is only the heuristic analysis, not the AI explanation."
     }
