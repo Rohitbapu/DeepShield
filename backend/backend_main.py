@@ -154,7 +154,7 @@ def analyze_with_groq(url: str) -> dict:
     # 3. Call Groq
     try:
         response = groq_client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": "You are DeepShield, a cybersecurity AI. Always respond with valid JSON only."},
                 {"role": "user", "content": prompt}
