@@ -1,0 +1,64 @@
+/* DeepShield DLP - Injected Styles */
+
+/* --- Highlight for Dangerous Links --- */
+a.ds-danger {
+    background-color: #450a0a !important;
+    color: #fca5a5 !important;
+    border: 2px solid #ef4444 !important;
+    border-radius: 4px !important;
+    padding: 0 6px !important;
+    text-decoration: none !important;
+    font-weight: 600 !important;
+    transition: all 0.2s ease;
+}
+a.ds-danger:hover {
+    background-color: #7f1d1d !important;
+}
+
+/* --- Floating Badges --- */
+.ds-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 800;
+    font-family: system-ui, -apple-system, sans-serif;
+    cursor: pointer;
+    user-select: none;
+    transition: transform 0.2s, box-shadow 0.2s;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    line-height: 1.6;
+    vertical-align: middle;
+}
+.ds-badge:hover {
+    transform: scale(1.08);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.ds-badge-danger {
+    background: #7f1d1d;
+    color: #fecaca;
+    border-color: #ef4444;
+}
+.ds-badge-danger:hover {
+    background: #991b1b;
+}
+
+.ds-badge-warning {
+    background: #78350f;
+    color: #fde68a;
+    border-color: #facc15;
+}
+.ds-badge-warning:hover {
+    background: #92400e;
+}
+
+.ds-badge-safe {
+    background: #065f46;
+    color: #a7f3d0;
+    border-color: #10b981;
+}
+.ds-badge-safe:hover {
+    background: #047857;
+}

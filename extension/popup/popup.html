@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DeepShield DLP</title>
+    <style>
+        :root {
+            --bg: #0b0f1a;
+            --card: #161b2c;
+            --accent: #38bdf8;
+            --danger: #f43f5e;
+            --success: #10b981;
+            --warning: #facc15;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            width: 320px;
+            font-family: 'Inter', -apple-system, system-ui, sans-serif;
+            background: var(--bg);
+            color: #f8fafc;
+            padding: 16px;
+        }
+        .card {
+            background: var(--card);
+            border-radius: 16px;
+            padding: 18px;
+            border: 1px solid #2d3748;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .brand {
+            font-size: 15px;
+            font-weight: 800;
+            color: var(--accent);
+            letter-spacing: -0.5px;
+        }
+        .status-box {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 20px;
+            background: #00000055;
+        }
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--danger);
+            transition: background 0.3s;
+        }
+        .dot.online {
+            background: var(--success);
+            box-shadow: 0 0 10px var(--success);
+        }
+        .subtitle {
+            font-size: 11px;
+            color: #94a3b8;
+            margin-bottom: 16px;
+        }
+        .action-btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+            margin-top: 8px;
+            font-size: 13px;
+            text-align: center;
+        }
+        .btn-scan {
+            background: var(--accent);
+            color: var(--bg);
+        }
+        .btn-scan:hover {
+            filter: brightness(1.1);
+            transform: scale(1.01);
+        }
+        .btn-scan:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .btn-toggle {
+            background: #2d3748;
+            color: white;
+        }
+        .btn-toggle.active {
+            background: var(--danger);
+            color: white;
+        }
+        .btn-allow {
+            background: #334155;
+            color: white;
+            border: 1px solid #475569;
+        }
+        .btn-allow:hover {
+            background: #475569;
+        }
+        .divider {
+            height: 1px;
+            background: #2d3748;
+            margin: 14px 0;
+        }
+        .footer-text {
+            font-size: 10px;
+            color: #475569;
+            text-align: center;
+            margin-top: 10px;
+        }
+        .badge-row {
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            margin-top: 8px;
+        }
+        .badge-preview {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 9px;
+            font-weight: 700;
+        }
+        .badge-preview.danger { background: #7f1d1d; color: #fecaca; }
+        .badge-preview.warning { background: #78350f; color: #fde68a; }
+        .badge-preview.safe { background: #065f46; color: #a7f3d0; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="header">
+            <span class="brand">🛡️ DEEPSHIELD</span>
+            <div class="status-box">
+                <div id="status-dot" class="dot"></div>
+                <span id="status-text">OFFLINE</span>
+            </div>
+        </div>
+        <div class="subtitle">Enterprise AI Threat Detector</div>
+
+        <!-- Primary Action -->
+        <button id="active-scan-btn" class="action-btn btn-scan">🔍 Scan This Page Now</button>
+
+        <!-- Badge Legend -->
+        <div class="badge-row">
+            <span class="badge-preview danger">🚨 CRITICAL</span>
+            <span class="badge-preview warning">⚠️ WARNING</span>
+            <span class="badge-preview safe">✅ SAFE</span>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Controls -->
+        <button id="main-toggle" class="action-btn btn-toggle">Protection: ON</button>
+        <button id="add-allowlist" class="action-btn btn-allow">+ Add Current Site to Safe List</button>
+
+        <div class="footer-text">Powered by VirusTotal + Groq Llama-3 · v2.1</div>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DeepShield DLP - Threat Intelligence</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background: #0b0f1a; color: #f8fafc; font-family: 'Inter', system-ui, sans-serif; }
+        .glass { background: rgba(22, 27, 44, 0.8); backdrop-filter: blur(12px); border: 1px solid #2d3748; }
+        .gradient-text { background: linear-gradient(135deg, #38bdf8, #10b981); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    </style>
+</head>
+<body class="min-h-screen p-6 flex items-center justify-center">
+
+    <div class="w-full max-w-5xl mx-auto">
+
+        <!-- ========== HEADER ========== -->
+        <div class="flex items-center justify-between border-b border-slate-700/50 pb-4 mb-8">
+            <div>
+                <h1 class="text-3xl md:text-4xl font-bold gradient-text">DeepShield <span class="text-slate-400 text-xl">DLP</span></h1>
+                <p class="text-slate-400 text-sm mt-1">VirusTotal + Groq XAI · Enterprise Threat Intelligence</p>
+            </div>
+            <span class="bg-slate-800 px-4 py-2 rounded-full text-xs font-mono text-cyan-400 border border-cyan-800/30">v2.1 · Live</span>
+        </div>
+
+        <!-- ========================================================== -->
+        <!-- SECTION 1: SINGLE DEEP-DIVE (from Extension "Report" click) -->
+        <!-- ========================================================== -->
+        <div id="singleSection" class="hidden glass rounded-2xl p-6 mb-8">
+            <h2 class="text-xl font-semibold text-red-400 flex items-center gap-2">
+                <span>🚨</span> Detailed Threat Report
+            </h2>
+            <p id="singleUrlDisplay" class="text-sm text-slate-400 mt-1 mb-4 break-all"></p>
+            <div id="singleResult" class="mt-4"></div>
+            <button onclick="window.location.href='/' " class="mt-6 text-sm text-cyan-400 hover:underline">← Back to Manual Check</button>
+        </div>
+
+        <!-- ========================================================== -->
+        <!-- SECTION 2: BATCH SCAN (from Extension Popup)               -->
+        <!-- ========================================================== -->
+        <div id="batchSection" class="hidden glass rounded-2xl p-6 mb-8">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold text-emerald-400 flex items-center gap-2">
+                    <span>📡</span> Page-Wide Scan Results
+                </h2>
+                <span id="progressText" class="text-sm text-slate-400">Preparing...</span>
+            </div>
+            <div class="w-full bg-slate-700 rounded-full h-2.5 mb-6">
+                <div id="progressBar" class="bg-cyan-500 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <div class="overflow-x-auto rounded-lg border border-slate-700">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-slate-900 text-slate-400 uppercase text-xs">
+                        <tr>
+                            <th class="px-4 py-3">#</th>
+                            <th class="px-4 py-3">URL</th>
+                            <th class="px-4 py-3">Score</th>
+                            <th class="px-4 py-3">Status</th>
+                            <th class="px-4 py-3">AI Verdict</th>
+                        </tr>
+                    </thead>
+                    <tbody id="batchResults"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ========================================================== -->
+        <!-- SECTION 3: MANUAL CHECK (Default)                          -->
+        <!-- ========================================================== -->
+        <div id="manualSection" class="glass rounded-2xl p-6">
+            <h2 class="text-xl font-semibold text-cyan-400 flex items-center gap-2">
+                <span>⌨️</span> Manual URL Check
+            </h2>
+            <p class="text-sm text-slate-400 mt-1 mb-4">Paste a link below. The system will query VirusTotal and generate an AI explanation.</p>
+            <div class="flex flex-col sm:flex-row gap-3">
+                <input type="url" id="manualInput" placeholder="https://suspicious-login.xyz/verify"
+                       class="flex-1 bg-slate-700/70 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+                <button id="manualScanBtn" class="bg-cyan-600 hover:bg-cyan-700 px-8 py-3 rounded-lg font-semibold transition">Scan</button>
+            </div>
+            <div id="manualResult" class="mt-6 hidden"></div>
+        </div>
+
+        <!-- ========== FOOTER ========== -->
+        <div class="mt-8 text-center text-xs text-slate-600 border-t border-slate-800/50 pt-4">
+            Powered by VirusTotal · Groq Llama-3 · Made for InnovaHack 2026
+        </div>
+    </div>
+
+    <!-- ========== JAVASCRIPT ========== -->
+    <script>
+        // ============================================================
+        // CONFIG
+        // ============================================================
+        const API_URL = 'https://YOUR-RENDER-URL.onrender.com/api/v1/scan'; // <-- CHANGE THIS
+
+        // ============================================================
+        // DOM REFS
+        // ============================================================
+        const manualSection = document.getElementById('manualSection');
+        const manualInput = document.getElementById('manualInput');
+        const manualScanBtn = document.getElementById('manualScanBtn');
+        const manualResult = document.getElementById('manualResult');
+
+        const singleSection = document.getElementById('singleSection');
+        const singleUrlDisplay = document.getElementById('singleUrlDisplay');
+        const singleResult = document.getElementById('singleResult');
+
+        const batchSection = document.getElementById('batchSection');
+        const batchResults = document.getElementById('batchResults');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+
+        // ============================================================
+        // HELPER: Render a Single Result Card (for both Manual & Deep-Dive)
+        // ============================================================
+        function renderResultCard(container, data, url) {
+            const isDanger = data.risk_score > 60;
+            const isWarning = data.risk_score > 30 && data.risk_score <= 60;
+            const isSafe = data.risk_score <= 30;
+
+            let borderColor = 'border-slate-600';
+            let headerColor = 'text-slate-400';
+            let bgColor = 'bg-slate-900';
+            let levelText = 'SAFE';
+            let levelColor = 'text-green-400';
+
+            if (isDanger) {
+                borderColor = 'border-red-500';
+                headerColor = 'text-red-400';
+                bgColor = 'bg-red-950/30';
+                levelText = '🚨 CRITICAL';
+                levelColor = 'text-red-400';
+            } else if (isWarning) {
+                borderColor = 'border-yellow-500';
+                headerColor = 'text-yellow-400';
+                bgColor = 'bg-yellow-950/30';
+                levelText = '⚠️ WARNING';
+                levelColor = 'text-yellow-400';
+            } else {
+                borderColor = 'border-emerald-500';
+                headerColor = 'text-emerald-400';
+                bgColor = 'bg-emerald-950/30';
+                levelText = '✅ SAFE';
+                levelColor = 'text-emerald-400';
+            }
+
+            container.innerHTML = `
+                <div class="${bgColor} p-5 rounded-xl border ${borderColor}">
+                    <div class="flex justify-between items-center">
+                        <span class="${headerColor} font-bold">Risk Score</span>
+                        <span class="text-3xl font-bold ${levelColor}">${data.risk_score}%</span>
+                    </div>
+                    <div class="mt-3 p-3 rounded-lg text-center font-bold text-lg ${levelColor} border ${borderColor} bg-slate-900/50">
+                        ${levelText}
+                    </div>
+                    <div class="mt-4 bg-slate-800/50 p-4 rounded-lg border border-slate-700">
+                        <p class="text-xs text-slate-500 uppercase tracking-wider mb-1">🧠 AI Threat Analysis</p>
+                        <p class="text-slate-200 text-sm leading-relaxed">${data.detailed_analysis || 'No detailed analysis available.'}</p>
+                    </div>
+                </div>
+            `;
+            container.classList.remove('hidden');
+        }
+
+        // ============================================================
+        // FUNCTION: Scan Single URL
+        // ============================================================
+        async function scanSingleUrl(url, container, displayElement) {
+            if (!url || !url.startsWith('http')) {
+                alert('Please enter a valid URL (e.g., https://example.com)');
+                return;
+            }
+            container.classList.remove('hidden');
+            container.innerHTML = `<div class="text-cyan-400">⏳ Scanning with VirusTotal + AI...</div>`;
+            if (displayElement) displayElement.textContent = `🔗 ${url}`;
+
+            try {
+                const res = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+                if (!res.ok) throw new Error(`Server error: ${res.status}`);
+                const data = await res.json();
+                renderResultCard(container, data, url);
+            } catch (e) {
+                container.innerHTML = `<div class="text-red-400 p-4 bg-slate-900 rounded-lg">❌ Error: ${e.message}</div>`;
+            }
+        }
+
+        // ============================================================
+        // FUNCTION: Scan Batch (for Extension Popup)
+        // ============================================================
+        async function scanBatch(urls) {
+            if (!urls || urls.length === 0) {
+                batchResults.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-500">No valid URLs found.</td></tr>`;
+                return;
+            }
+
+            manualSection.style.display = 'none';
+            batchSection.classList.remove('hidden');
+            batchResults.innerHTML = '';
+
+            let completed = 0;
+            const total = urls.length;
+
+            for (let i = 0; i < urls.length; i++) {
+                const url = urls[i];
+                const row = document.createElement('tr');
+                row.className = 'border-b border-slate-700 hover:bg-slate-800/50 transition';
+                row.innerHTML = `
+                    <td class="px-4 py-3 text-slate-500">${i + 1}</td>
+                    <td class="px-4 py-3 max-w-xs truncate text-cyan-300 text-xs">${url}</td>
+                    <td class="px-4 py-3" id="score-${i}">...</td>
+                    <td class="px-4 py-3" id="status-${i}">⏳ Scanning</td>
+                    <td class="px-4 py-3 max-w-xs truncate text-xs text-slate-400" id="explain-${i}">-</td>
+                `;
+                batchResults.appendChild(row);
+
+                try {
+                    const res = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url })
+                    });
+                    const data = await res.json();
+
+                    document.getElementById(`score-${i}`).textContent = data.risk_score + '%';
+
+                    const statusCell = document.getElementById(`status-${i}`);
+                    if (data.threat_level === 'CRITICAL') {
+                        statusCell.innerHTML = '<span class="text-red-400 font-bold">🚨 CRITICAL</span>';
+                    } else if (data.threat_level === 'WARNING') {
+                        statusCell.innerHTML = '<span class="text-yellow-400 font-bold">⚠️ WARNING</span>';
+                    } else {
+                        statusCell.innerHTML = '<span class="text-green-400 font-bold">✅ SAFE</span>';
+                    }
+
+                    document.getElementById(`explain-${i}`).textContent = data.short_explanation || 'N/A';
+
+                } catch (e) {
+                    document.getElementById(`score-${i}`).textContent = 'ERR';
+                    document.getElementById(`status-${i}`).textContent = '❌ Failed';
+                }
+
+                completed++;
+                progressBar.style.width = Math.round((completed / total) * 100) + '%';
+                progressText.textContent = `${completed} / ${total} scanned`;
+
+                // Delay to respect VirusTotal rate limit (15s between calls)
+                if (i < urls.length - 1) {
+                    await new Promise(r => setTimeout(r, 16000));
+                }
+            }
+            progressText.textContent = `✅ Complete! ${total} links analyzed.`;
+        }
+
+        // ============================================================
+        // EVENT LISTENERS
+        // ============================================================
+        manualScanBtn.addEventListener('click', () => scanSingleUrl(manualInput.value, manualResult));
+        manualInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') scanSingleUrl(manualInput.value, manualResult);
+        });
+
+        // ============================================================
+        // ON LOAD: Parse URL Params (Extension sends ?url= or ?urls=)
+        // ============================================================
+        window.onload = function() {
+            const params = new URLSearchParams(window.location.search);
+            const singleUrl = params.get('url');
+            const urlsParam = params.get('urls');
+
+            if (singleUrl) {
+                // Mode A: Deep-dive from extension "Report" button click
+                singleSection.classList.remove('hidden');
+                manualSection.style.display = 'none';
+                scanSingleUrl(singleUrl, singleResult, singleUrlDisplay);
+            } else if (urlsParam) {
+                // Mode B: Batch from extension popup
+                const urls = decodeURIComponent(urlsParam).split(',').filter(u => u.startsWith('http'));
+                scanBatch(urls);
+            } else {
+                // Mode C: Manual default
+                manualSection.style.display = 'block';
+                singleSection.classList.add('hidden');
+                batchSection.classList.add('hidden');
+            }
+        };
+    </script>
+
+</body>
+</html>
