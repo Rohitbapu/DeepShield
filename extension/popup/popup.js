@@ -1,77 +1,103 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const dot = document.getElementById('status-dot');
-    const statusText = document.getElementById('status-text');
-    const toggleBtn = document.getElementById('main-toggle');
-    const allowBtn = document.getElementById('add-allowlist');
-    const scanBtn = document.getElementById('active-scan-btn');
+  const statusDot = document.getElementById('statusDot');
+  const statusText = document.getElementById('statusText');
+  const scanBtn = document.getElementById('activeScanBtn');
+  const allowlistBtn = document.getElementById('allowlistBtn');
+  const toggleBtn = document.getElementById('toggleProtectionBtn');
 
-    const API_URL = "https://deepshield-p6ux.onrender.com";
+  const API_URL = 'https://deepshield-p6ux.onrender.com'; // REPLACE
 
-    // 1. Check Backend Health
-    fetch(`${API_URL}/`, { method: "GET" })
-        .then(() => {
-            dot.classList.add('online');
-            statusText.innerText = "CONNECTED";
-        })
-        .catch(() => {
-            statusText.innerText = "OFFLINE";
-            dot.style.background = '#f43f5e';
-        });
-
-    // 2. Toggle Protection
-    chrome.storage.local.get(['filterDisabled'], (res) => {
-        let disabled = res.filterDisabled || false;
-        toggleBtn.innerText = disabled ? "Protection: OFF" : "Protection: ON";
-        if (disabled) toggleBtn.classList.add('active');
+  // ---------- CHECK BACKEND ----------
+  fetch(`${API_URL}/health`)
+    .then(() => {
+      statusDot.classList.add('online');
+      statusText.textContent = 'Online';
+    })
+    .catch(() => {
+      statusText.textContent = 'Offline';
     });
 
-    toggleBtn.addEventListener('click', () => {
-        chrome.storage.local.get(['filterDisabled'], (res) => {
-            const newState = !res.filterDisabled;
-            chrome.storage.local.set({ filterDisabled: newState }, () => {
-                toggleBtn.innerText = newState ? "Protection: OFF" : "Protection: ON";
-                toggleBtn.classList.toggle('active');
-            });
-        });
+  // ---------- ACTIVE SCAN ----------
+  scanBtn.addEventListener('click', () => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) {
+        chrome.tabs.sendMessage(tabs[0].id, { action: "trigger_active_scan" });
+        scanBtn.textContent = '⏳ Scanning...';
+        scanBtn.disabled = true;
+        setTimeout(() => {
+          scanBtn.textContent = '🔍 Scan This Page';
+          scanBtn.disabled = false;
+          window.close();
+        }, 3000);
+      }
     });
+  });
 
-    // 3. Active Scan Button
-    scanBtn.addEventListener('click', () => {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs[0]) {
-                chrome.tabs.sendMessage(tabs[0].id, { action: "trigger_active_scan" });
-                scanBtn.innerText = "⏳ Scanning...";
-                scanBtn.disabled = true;
-                setTimeout(() => {
-                    scanBtn.innerText = "🔍 Scan This Page Now";
-                    scanBtn.disabled = false;
-                }, 5000);
-                setTimeout(() => window.close(), 800);
-            }
-        });
-    });
+  // ---------- TOGGLE PROTECTION ----------
+  chrome.storage.local.get(['filterDisabled'], (data) => {
+    const disabled = data.filterDisabled || false;
+    toggleBtn.textContent = disabled ? '🛡️ Protection: OFF' : '🛡️ Protection: ON';
+    toggleBtn.classList.toggle('btn-danger', disabled);
+    toggleBtn.classList.toggle('btn-secondary', !disabled);
+  });
 
-    // 4. Add to Allowlist
-    allowBtn.addEventListener('click', () => {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            try {
-                const domain = new URL(tabs[0].url).hostname.replace('www.', '');
-                chrome.storage.local.get(['allowlist'], (res) => {
-                    const list = res.allowlist || [];
-                    if (!list.includes(domain)) {
-                        list.push(domain);
-                        chrome.storage.local.set({ allowlist: list }, () => {
-                            allowBtn.innerText = "✅ Added!";
-                            setTimeout(() => location.reload(), 1200);
-                        });
-                    } else {
-                        allowBtn.innerText = "⏳ Already Safe";
-                        setTimeout(() => location.reload(), 1200);
-                    }
-                });
-            } catch (e) {
-                allowBtn.innerText = "⚠️ Error";
-            }
-        });
+  toggleBtn.addEventListener('click', () => {
+    chrome.storage.local.get(['filterDisabled'], (data) => {
+      const newState = !data.filterDisabled;
+      chrome.storage.local.set({ filterDisabled: newState }, () => {
+        toggleBtn.textContent = newState ? '🛡️ Protection: OFF' : '🛡️ Protection: ON';
+        toggleBtn.classList.toggle('btn-danger', newState);
+        toggleBtn.classList.toggle('btn-secondary', !newState);
+      });
     });
+  });
+
+  // ---------- ALLOWLIST ----------
+  function updateAllowlistButton(domain) {
+    chrome.storage.local.get(['allowlist'], (data) => {
+      const list = data.allowlist || [];
+      if (list.includes(domain)) {
+        allowlistBtn.textContent = '✅ Already Safe';
+        allowlistBtn.classList.add('btn-success');
+        allowlistBtn.classList.remove('btn-secondary');
+        allowlistBtn.disabled = true;
+      } else {
+        allowlistBtn.textContent = '+ Add Current Site to Safe List';
+        allowlistBtn.classList.remove('btn-success');
+        allowlistBtn.classList.add('btn-secondary');
+        allowlistBtn.disabled = false;
+      }
+    });
+  }
+
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (tabs[0] && tabs[0].url) {
+      try {
+        const domain = new URL(tabs[0].url).hostname.replace('www.', '');
+        updateAllowlistButton(domain);
+        allowlistBtn.dataset.domain = domain;
+      } catch (e) {
+        allowlistBtn.textContent = '⚠️ No site detected';
+        allowlistBtn.disabled = true;
+      }
+    }
+  });
+
+  allowlistBtn.addEventListener('click', () => {
+    const domain = allowlistBtn.dataset.domain;
+    if (!domain) return;
+    chrome.storage.local.get(['allowlist'], (data) => {
+      const list = data.allowlist || [];
+      if (!list.includes(domain)) {
+        list.push(domain);
+        chrome.storage.local.set({ allowlist: list }, () => {
+          allowlistBtn.textContent = '✅ Added to Safe List!';
+          allowlistBtn.classList.add('btn-success');
+          allowlistBtn.classList.remove('btn-secondary');
+          allowlistBtn.disabled = true;
+          setTimeout(() => window.close(), 1500);
+        });
+      }
+    });
+  });
 });
