@@ -3,98 +3,325 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DeepShield DLP - AI Threat Intelligence</title>
+    <title>DeepShield DLP – AI Threat Intelligence</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { inter: ['Inter', 'sans-serif'] },
+                    colors: {
+                        primary: '#2563eb',
+                        primaryLight: '#3b82f6',
+                        primaryDark: '#1d4ed8',
+                        accent: '#7c3aed',
+                        success: '#16a34a',
+                        warning: '#eab308',
+                        danger: '#dc2626',
+                        grayLight: '#f8fafc',
+                        grayBorder: '#e2e8f0',
+                    }
+                }
+            }
+        }
+    </script>
     <style>
-        body { background: #0b0f1a; color: #f8fafc; font-family: 'Inter', system-ui, sans-serif; }
-        .glass { background: rgba(22, 27, 44, 0.8); backdrop-filter: blur(12px); border: 1px solid #2d3748; }
-        .gradient-text { background: linear-gradient(135deg, #38bdf8, #10b981); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .animate-pulse-slow { animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', -apple-system, system-ui, sans-serif; background: #f1f5f9; color: #0f172a; }
+        
+        /* Smooth transitions */
+        .fade-in { animation: fadeIn 0.4s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .slide-up { animation: slideUp 0.3s ease-in-out; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .pulse-slow { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #e2e8f0; border-radius: 8px; }
+        ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 8px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+        /* Result card hover effects */
+        .result-card { transition: all 0.2s ease; }
+        .result-card:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.08); }
+
+        /* Scan history item */
+        .history-item { transition: all 0.2s ease; cursor: pointer; }
+        .history-item:hover { background: #f1f5f9; transform: translateX(4px); }
+
+        /* Badge styles */
+        .badge-critical { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+        .badge-warning { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+        .badge-safe { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+        .badge-caution { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+
+        /* Input focus */
+        .input-focus:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+
+        /* Skeleton loading */
+        .skeleton { background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+        @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+
+        /* Theme toggle */
+        .theme-toggle { transition: all 0.3s ease; }
+        .theme-toggle:hover { transform: rotate(20deg); }
     </style>
 </head>
-<body class="min-h-screen p-6 flex items-center justify-center">
+<body>
 
-    <div class="w-full max-w-5xl mx-auto">
+    <!-- ========================================================== -->
+    <!-- NAVIGATION BAR -->
+    <!-- ========================================================== -->
+    <nav class="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <!-- Logo -->
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold text-gray-900">DeepShield <span class="text-primary font-light">DLP</span></h1>
+                        <p class="text-xs text-gray-500 -mt-0.5">Enterprise Threat Intelligence</p>
+                    </div>
+                </div>
 
-        <!-- ========== HEADER ========== -->
-        <div class="flex items-center justify-between border-b border-slate-700/50 pb-4 mb-8">
-            <div>
-                <h1 class="text-3xl md:text-4xl font-bold gradient-text">DeepShield <span class="text-slate-400 text-xl">DLP</span></h1>
-                <p class="text-slate-400 text-sm mt-1">Google Gemini AI · Enterprise Threat Intelligence</p>
-            </div>
-            <span class="bg-slate-800 px-4 py-2 rounded-full text-xs font-mono text-cyan-400 border border-cyan-800/30">v2.7 · Live</span>
-        </div>
+                <!-- Right Actions -->
+                <div class="flex items-center gap-4">
+                    <!-- Status Badge -->
+                    <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-full border border-gray-200">
+                        <span class="w-2 h-2 rounded-full bg-success animate-pulse"></span>
+                        <span class="text-xs font-medium text-gray-600" id="navStatus">Connected</span>
+                    </div>
 
-        <!-- ========================================================== -->
-        <!-- SECTION 1: SINGLE DEEP-DIVE (from Extension "Report" click) -->
-        <!-- ========================================================== -->
-        <div id="singleSection" class="hidden glass rounded-2xl p-6 mb-8">
-            <h2 class="text-xl font-semibold text-red-400 flex items-center gap-2">
-                <span>🚨</span> Detailed Threat Report
-            </h2>
-            <p id="singleUrlDisplay" class="text-sm text-slate-400 mt-1 mb-4 break-all"></p>
-            <div id="singleResult" class="mt-4"></div>
-            <button onclick="window.location.href='/' " class="mt-6 text-sm text-cyan-400 hover:underline">← Back to Manual Check</button>
-        </div>
+                    <!-- Theme Toggle (optional) -->
+                    <button id="themeToggle" class="p-2 rounded-lg hover:bg-gray-100 transition text-gray-600 theme-toggle">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+                        </svg>
+                    </button>
 
-        <!-- ========================================================== -->
-        <!-- SECTION 2: BATCH SCAN (from Extension Popup)               -->
-        <!-- ========================================================== -->
-        <div id="batchSection" class="hidden glass rounded-2xl p-6 mb-8">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-xl font-semibold text-emerald-400 flex items-center gap-2">
-                    <span>📡</span> Page-Wide Scan Results
-                </h2>
-                <span id="progressText" class="text-sm text-slate-400">Preparing...</span>
-            </div>
-            <div class="w-full bg-slate-700 rounded-full h-2.5 mb-6">
-                <div id="progressBar" class="bg-cyan-500 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
-            </div>
-            <div class="overflow-x-auto rounded-lg border border-slate-700">
-                <table class="w-full text-sm text-left">
-                    <thead class="bg-slate-900 text-slate-400 uppercase text-xs">
-                        <tr>
-                            <th class="px-4 py-3">#</th>
-                            <th class="px-4 py-3">URL</th>
-                            <th class="px-4 py-3">Score</th>
-                            <th class="px-4 py-3">Status</th>
-                            <th class="px-4 py-3">AI Verdict</th>
-                        </tr>
-                    </thead>
-                    <tbody id="batchResults"></tbody>
-                </table>
+                    <!-- GitHub Link -->
+                    <a href="#" target="_blank" class="p-2 rounded-lg hover:bg-gray-100 transition text-gray-600">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.15 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.62.24 2.85.12 3.15.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                        </svg>
+                    </a>
+                </div>
             </div>
         </div>
+    </nav>
+
+    <!-- ========================================================== -->
+    <!-- MAIN CONTENT -->
+    <!-- ========================================================== -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
         <!-- ========================================================== -->
-        <!-- SECTION 3: MANUAL CHECK (Default)                          -->
+        <!-- STATISTICS DASHBOARD -->
         <!-- ========================================================== -->
-        <div id="manualSection" class="glass rounded-2xl p-6">
-            <h2 class="text-xl font-semibold text-cyan-400 flex items-center gap-2">
-                <span>⌨️</span> Manual URL Check
-            </h2>
-            <p class="text-sm text-slate-400 mt-1 mb-4">Paste a link below. DeepShield will analyze it using deterministic scoring + Gemini AI.</p>
-            <div class="flex flex-col sm:flex-row gap-3">
-                <input type="url" id="manualInput" placeholder="https://suspicious-login.xyz/verify"
-                       class="flex-1 bg-slate-700/70 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-                <button id="manualScanBtn" class="bg-cyan-600 hover:bg-cyan-700 px-8 py-3 rounded-lg font-semibold transition">Scan</button>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" id="statsContainer">
+            <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-200 fade-in">
+                <p class="text-sm text-gray-500 font-medium">Total Scans</p>
+                <p class="text-2xl font-bold text-gray-900 mt-1" id="totalScans">0</p>
             </div>
-            <div id="manualResult" class="mt-6 hidden"></div>
+            <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-200 fade-in">
+                <p class="text-sm text-gray-500 font-medium">Threats Detected</p>
+                <p class="text-2xl font-bold text-danger mt-1" id="threatsDetected">0</p>
+            </div>
+            <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-200 fade-in">
+                <p class="text-sm text-gray-500 font-medium">Safe URLs</p>
+                <p class="text-2xl font-bold text-success mt-1" id="safeUrls">0</p>
+            </div>
+            <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-200 fade-in">
+                <p class="text-sm text-gray-500 font-medium">Avg. Score</p>
+                <p class="text-2xl font-bold text-primary mt-1" id="avgScore">0%</p>
+            </div>
         </div>
 
-        <!-- ========== FOOTER ========== -->
-        <div class="mt-8 text-center text-xs text-slate-600 border-t border-slate-800/50 pt-4">
-            Powered by Google Gemini · Deterministic Scoring · Made for InnovaHack 2026
-        </div>
-    </div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
-    <!-- ========== JAVASCRIPT ========== -->
+            <!-- ========================================================== -->
+            <!-- LEFT COLUMN: SCAN INPUT + RESULTS -->
+            <!-- ========================================================== -->
+            <div class="lg:col-span-2">
+
+                <!-- ========================================================== -->
+                <!-- SECTION 1: MANUAL SCAN (Default) -->
+                <!-- ========================================================== -->
+                <div id="manualSection" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6 fade-in">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <h2 class="text-lg font-bold text-gray-900">URL Scanner</h2>
+                            <p class="text-sm text-gray-500">Paste a suspicious link for real-time AI analysis</p>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <input type="url" id="manualInput" 
+                               placeholder="https://suspicious-login.xyz/verify"
+                               class="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-400 focus:border-primary focus:ring-2 focus:ring-primary/20 input-focus transition" />
+                        <button id="manualScanBtn" 
+                                class="bg-primary hover:bg-primaryDark text-white px-8 py-3 rounded-xl font-semibold transition flex items-center justify-center gap-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                            </svg>
+                            Scan
+                        </button>
+                    </div>
+
+                    <!-- Quick example links -->
+                    <div class="flex flex-wrap gap-2 mt-4">
+                        <span class="text-xs text-gray-500 font-medium">Try:</span>
+                        <button class="example-link text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition" data-url="paypal-verify.xyz">paypal-verify.xyz</button>
+                        <button class="example-link text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition" data-url="amazon-prime-update.top">amazon-prime-update.top</button>
+                        <button class="example-link text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition" data-url="google.com">google.com</button>
+                        <button class="example-link text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition" data-url="secure-login.xyz">secure-login.xyz</button>
+                    </div>
+
+                    <!-- Result Container -->
+                    <div id="manualResult" class="mt-6 hidden"></div>
+                </div>
+
+                <!-- ========================================================== -->
+                <!-- SECTION 2: BATCH SCAN RESULTS (from Extension) -->
+                <!-- ========================================================== -->
+                <div id="batchSection" class="hidden bg-white rounded-2xl shadow-sm border border-gray-200 p-6 fade-in">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <h2 class="text-lg font-bold text-gray-900">Page-Wide Scan</h2>
+                                <p class="text-sm text-gray-500" id="batchProgress">Scanning links from the current page...</p>
+                            </div>
+                        </div>
+                        <button id="backToManual" class="text-sm text-primary hover:text-primaryDark font-medium transition">← Back to Manual</button>
+                    </div>
+
+                    <!-- Progress Bar -->
+                    <div class="w-full bg-gray-200 rounded-full h-2 mb-4">
+                        <div id="batchProgressBar" class="bg-primary h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+                    </div>
+
+                    <!-- Results Table -->
+                    <div class="overflow-x-auto rounded-xl border border-gray-200">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">URL</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Score</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Verdict</th>
+                                </tr>
+                            </thead>
+                            <tbody id="batchResults" class="divide-y divide-gray-100"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========================================================== -->
+            <!-- RIGHT COLUMN: HISTORY + QUICK ACTIONS -->
+            <!-- ========================================================== -->
+            <div class="lg:col-span-1">
+
+                <!-- Quick Actions -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 mb-6 fade-in">
+                    <h3 class="font-semibold text-gray-900 text-sm mb-3 flex items-center gap-2">
+                        <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                        </svg>
+                        Quick Actions
+                    </h3>
+                    <div class="space-y-2">
+                        <button id="clearHistoryBtn" class="w-full text-left text-sm text-gray-600 hover:text-danger px-3 py-2 rounded-lg hover:bg-red-50 transition flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                            </svg>
+                            Clear History
+                        </button>
+                        <button id="exportResultsBtn" class="w-full text-left text-sm text-gray-600 hover:text-primary px-3 py-2 rounded-lg hover:bg-primary/5 transition flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                            </svg>
+                            Export Results
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Scan History -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 fade-in">
+                    <h3 class="font-semibold text-gray-900 text-sm mb-3 flex items-center gap-2">
+                        <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        Scan History
+                        <span class="ml-auto text-xs text-gray-400" id="historyCount">0 items</span>
+                    </h3>
+                    <div id="historyList" class="max-h-80 overflow-y-auto space-y-1">
+                        <p class="text-sm text-gray-400 text-center py-8">No scans yet. Start scanning URLs above!</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ========================================================== -->
+    <!-- FOOTER -->
+    <!-- ========================================================== -->
+    <footer class="bg-white border-t border-gray-200 mt-8">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div class="flex flex-col sm:flex-row justify-between items-center gap-4">
+                <div class="flex items-center gap-4">
+                    <span class="text-xs text-gray-500">© 2026 DeepShield DLP</span>
+                    <span class="text-xs text-gray-300">|</span>
+                    <span class="text-xs text-gray-500">Powered by Google Gemini AI</span>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span class="text-xs text-gray-400">
+                        <span class="inline-block w-2 h-2 rounded-full bg-success animate-pulse mr-1"></span>
+                        <span id="footerStatus">API Connected</span>
+                    </span>
+                    <span class="text-xs text-gray-300">|</span>
+                    <span class="text-xs text-gray-400" id="versionBadge">v2.8</span>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- ========================================================== -->
+    <!-- JAVASCRIPT -->
+    <!-- ========================================================== -->
     <script>
         // ============================================================
         // CONFIG
         // ============================================================
-        const API_URL = 'https://deepshield-p6ux.onrender.com/api/v1/scan';
+        const API_URL = 'https://YOUR-RENDER-URL.onrender.com/api/v1/scan';
+        const API_HEALTH = 'https://YOUR-RENDER-URL.onrender.com/';
+        const MAX_HISTORY = 50;
+
+        // ============================================================
+        // STATE
+        // ============================================================
+        let scanHistory = JSON.parse(localStorage.getItem('deepshield_history') || '[]');
+        let stats = JSON.parse(localStorage.getItem('deepshield_stats') || '{"total":0,"threats":0,"safe":0,"totalScore":0}');
 
         // ============================================================
         // DOM REFS
@@ -104,86 +331,160 @@
         const manualScanBtn = document.getElementById('manualScanBtn');
         const manualResult = document.getElementById('manualResult');
 
-        const singleSection = document.getElementById('singleSection');
-        const singleUrlDisplay = document.getElementById('singleUrlDisplay');
-        const singleResult = document.getElementById('singleResult');
-
         const batchSection = document.getElementById('batchSection');
         const batchResults = document.getElementById('batchResults');
-        const progressBar = document.getElementById('progressBar');
-        const progressText = document.getElementById('progressText');
+        const batchProgressBar = document.getElementById('batchProgressBar');
+        const batchProgress = document.getElementById('batchProgress');
+        const backToManual = document.getElementById('backToManual');
+
+        const historyList = document.getElementById('historyList');
+        const historyCount = document.getElementById('historyCount');
+        const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+        const exportResultsBtn = document.getElementById('exportResultsBtn');
+
+        const totalScans = document.getElementById('totalScans');
+        const threatsDetected = document.getElementById('threatsDetected');
+        const safeUrls = document.getElementById('safeUrls');
+        const avgScore = document.getElementById('avgScore');
+
+        const navStatus = document.getElementById('navStatus');
+        const footerStatus = document.getElementById('footerStatus');
 
         // ============================================================
-        // HELPER: Render a Single Result Card
+        // HELPER: Render Result Card
         // ============================================================
         function renderResultCard(container, data, url) {
             const isDanger = data.risk_score > 60;
-            const isWarning = data.risk_score > 30 && data.risk_score <= 60;
-            const isSafe = data.risk_score <= 30;
+            const isWarning = data.risk_score > 35 && data.risk_score <= 60;
+            const isCaution = data.risk_score > 15 && data.risk_score <= 35;
+            const isSafe = data.risk_score <= 15;
 
-            let borderColor = 'border-slate-600';
-            let headerColor = 'text-slate-400';
-            let bgColor = 'bg-slate-900';
+            let borderColor = 'border-gray-200';
+            let headerColor = 'text-gray-600';
+            let bgColor = 'bg-gray-50';
             let levelText = 'SAFE';
-            let levelColor = 'text-green-400';
+            let levelColor = 'text-success';
+            let badgeClass = 'badge-safe';
 
             if (isDanger) {
-                borderColor = 'border-red-500';
-                headerColor = 'text-red-400';
-                bgColor = 'bg-red-950/30';
+                borderColor = 'border-red-400';
+                headerColor = 'text-danger';
+                bgColor = 'bg-red-50';
                 levelText = '🚨 CRITICAL';
-                levelColor = 'text-red-400';
+                levelColor = 'text-danger';
+                badgeClass = 'badge-critical';
             } else if (isWarning) {
-                borderColor = 'border-yellow-500';
-                headerColor = 'text-yellow-400';
-                bgColor = 'bg-yellow-950/30';
+                borderColor = 'border-yellow-400';
+                headerColor = 'text-warning';
+                bgColor = 'bg-yellow-50';
                 levelText = '⚠️ WARNING';
-                levelColor = 'text-yellow-400';
+                levelColor = 'text-warning';
+                badgeClass = 'badge-warning';
+            } else if (isCaution) {
+                borderColor = 'border-orange-300';
+                headerColor = 'text-orange-600';
+                bgColor = 'bg-orange-50';
+                levelText = '⚡ CAUTION';
+                levelColor = 'text-orange-600';
+                badgeClass = 'badge-caution';
             } else {
-                borderColor = 'border-emerald-500';
-                headerColor = 'text-emerald-400';
-                bgColor = 'bg-emerald-950/30';
+                borderColor = 'border-green-300';
+                headerColor = 'text-success';
+                bgColor = 'bg-green-50';
                 levelText = '✅ SAFE';
-                levelColor = 'text-emerald-400';
+                levelColor = 'text-success';
+                badgeClass = 'badge-safe';
             }
 
             container.innerHTML = `
-                <div class="${bgColor} p-5 rounded-xl border ${borderColor}">
-                    <div class="flex justify-between items-center">
-                        <span class="${headerColor} font-bold">Risk Score</span>
-                        <span class="text-3xl font-bold ${levelColor}">${data.risk_score}%</span>
-                    </div>
-                    <div class="mt-3 p-3 rounded-lg text-center font-bold text-lg ${levelColor} border ${borderColor} bg-slate-900/50">
-                        ${levelText}
-                    </div>
-                    <div class="mt-4 bg-slate-800/50 p-4 rounded-lg border border-slate-700">
-                        <p class="text-xs text-slate-500 uppercase tracking-wider mb-1">🧠 AI Threat Analysis</p>
-                        <p class="text-slate-200 text-sm leading-relaxed">${data.detailed_analysis || 'No detailed analysis available.'}</p>
-                    </div>
-                    ${data.heuristics_flagged && data.heuristics_flagged.length > 0 ? `
-                        <div class="mt-3 bg-slate-800/30 p-3 rounded-lg">
-                            <p class="text-xs text-slate-500 uppercase tracking-wider mb-1">📌 Technical Flags</p>
-                            <ul class="text-xs text-slate-400 list-disc list-inside">
-                                ${data.heuristics_flagged.map(f => `<li>${f}</li>`).join('')}
-                            </ul>
+                <div class="result-card bg-white rounded-xl border ${borderColor} overflow-hidden fade-in">
+                    <div class="p-5 ${bgColor}">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <span class="inline-block px-3 py-1 rounded-full text-xs font-bold ${badgeClass}">${levelText}</span>
+                            </div>
+                            <span class="text-3xl font-bold ${levelColor}">${data.risk_score}%</span>
                         </div>
-                    ` : ''}
+                    </div>
+                    <div class="p-5">
+                        <p class="text-gray-700 text-sm leading-relaxed">${data.detailed_analysis || 'No detailed analysis available.'}</p>
+                        
+                        ${data.heuristics_flagged && data.heuristics_flagged.length > 0 ? `
+                            <details class="mt-3">
+                                <summary class="text-xs text-primary cursor-pointer hover:text-primaryDark font-medium">🔍 View Technical Flags</summary>
+                                <ul class="mt-2 space-y-1 text-xs text-gray-600 bg-gray-50 rounded-lg p-3 list-disc list-inside">
+                                    ${data.heuristics_flagged.map(f => `<li>${f}</li>`).join('')}
+                                </ul>
+                            </details>
+                        ` : ''}
+                        
+                        <div class="mt-4 flex gap-2">
+                            <button onclick="copyResult('${encodeURIComponent(JSON.stringify(data))}')" 
+                                    class="text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 transition flex items-center gap-1">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                </svg>
+                                Copy
+                            </button>
+                            <button onclick="rescanUrl('${encodeURIComponent(url)}')" 
+                                    class="text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 transition flex items-center gap-1">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                </svg>
+                                Rescan
+                            </button>
+                        </div>
+                    </div>
                 </div>
             `;
             container.classList.remove('hidden');
         }
 
         // ============================================================
+        // FUNCTION: Copy Result
+        // ============================================================
+        window.copyResult = function(dataEncoded) {
+            const data = JSON.parse(decodeURIComponent(dataEncoded));
+            const text = `URL: ${data.url}\nRisk Score: ${data.risk_score}%\nThreat Level: ${data.threat_level}\nAnalysis: ${data.detailed_analysis}\nFlags: ${data.heuristics_flagged.join(', ')}`;
+            navigator.clipboard.writeText(text).then(() => {
+                showToast('✅ Results copied to clipboard!', 'success');
+            }).catch(() => {
+                showToast('❌ Failed to copy', 'error');
+            });
+        };
+
+        // ============================================================
+        // FUNCTION: Rescan URL
+        // ============================================================
+        window.rescanUrl = function(urlEncoded) {
+            const url = decodeURIComponent(urlEncoded);
+            manualInput.value = url;
+            performScan(url);
+            // Scroll to top
+            document.querySelector('main').scrollIntoView({ behavior: 'smooth' });
+        };
+
+        // ============================================================
         // FUNCTION: Scan Single URL
         // ============================================================
-        async function scanSingleUrl(url, container, displayElement) {
+        async function performScan(url, container = manualResult) {
             if (!url || !url.startsWith('http')) {
-                alert('Please enter a valid URL (e.g., https://example.com)');
-                return;
+                // Auto-add http:// if missing
+                if (url && !url.startsWith('http')) {
+                    url = 'https://' + url;
+                } else {
+                    showToast('Please enter a valid URL', 'error');
+                    return;
+                }
             }
+
             container.classList.remove('hidden');
-            container.innerHTML = `<div class="text-cyan-400">⏳ Scanning with Gemini AI...</div>`;
-            if (displayElement) displayElement.textContent = `🔗 ${url}`;
+            container.innerHTML = `
+                <div class="text-center py-8">
+                    <div class="inline-block w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mb-3"></div>
+                    <p class="text-gray-500 text-sm">Analyzing URL with Gemini AI...</p>
+                </div>
+            `;
 
             try {
                 const res = await fetch(API_URL, {
@@ -193,38 +494,267 @@
                 });
                 if (!res.ok) throw new Error(`Server error: ${res.status}`);
                 const data = await res.json();
+
+                // Add to history
+                addToHistory(url, data);
+
+                // Update stats
+                updateStats(data);
+
                 renderResultCard(container, data, url);
+
             } catch (e) {
-                container.innerHTML = `<div class="text-red-400 p-4 bg-slate-900 rounded-lg">❌ Error: ${e.message}</div>`;
+                container.innerHTML = `
+                    <div class="bg-red-50 border border-red-200 rounded-xl p-5 text-center">
+                        <div class="text-red-500 text-3xl mb-2">⚠️</div>
+                        <h4 class="font-semibold text-gray-900">Scan Failed</h4>
+                        <p class="text-sm text-gray-600 mt-1">${e.message}</p>
+                        <button onclick="performScan('${encodeURIComponent(url)}')" 
+                                class="mt-3 text-sm text-primary hover:text-primaryDark font-medium transition">
+                            Try Again
+                        </button>
+                    </div>
+                `;
+                showToast('Scan failed: ' + e.message, 'error');
             }
         }
 
         // ============================================================
-        // FUNCTION: Scan Batch (for Extension Popup)
+        // FUNCTION: Add to History
+        // ============================================================
+        function addToHistory(url, data) {
+            const entry = {
+                url: url,
+                score: data.risk_score,
+                threat_level: data.threat_level,
+                timestamp: new Date().toISOString(),
+                short: data.short_explanation,
+                detailed: data.detailed_analysis
+            };
+            scanHistory.unshift(entry);
+            if (scanHistory.length > MAX_HISTORY) {
+                scanHistory = scanHistory.slice(0, MAX_HISTORY);
+            }
+            localStorage.setItem('deepshield_history', JSON.stringify(scanHistory));
+            renderHistory();
+        }
+
+        // ============================================================
+        // FUNCTION: Update Stats
+        // ============================================================
+        function updateStats(data) {
+            stats.total++;
+            if (data.risk_score > 35) {
+                stats.threats++;
+            } else {
+                stats.safe++;
+            }
+            stats.totalScore += data.risk_score;
+            localStorage.setItem('deepshield_stats', JSON.stringify(stats));
+            renderStats();
+        }
+
+        // ============================================================
+        // FUNCTION: Render History
+        // ============================================================
+        function renderHistory() {
+            if (scanHistory.length === 0) {
+                historyList.innerHTML = `<p class="text-sm text-gray-400 text-center py-8">No scans yet. Start scanning!</p>`;
+                historyCount.textContent = '0 items';
+                return;
+            }
+
+            historyList.innerHTML = scanHistory.slice(0, 20).map((entry, index) => {
+                const isDanger = entry.score > 60;
+                const isWarning = entry.score > 35;
+                const isCaution = entry.score > 15;
+                let emoji = '✅';
+                let colorClass = 'text-success';
+                if (isDanger) { emoji = '🚨'; colorClass = 'text-danger'; }
+                else if (isWarning) { emoji = '⚠️'; colorClass = 'text-warning'; }
+                else if (isCaution) { emoji = '⚡'; colorClass = 'text-orange-500'; }
+
+                const displayUrl = entry.url.length > 40 ? entry.url.substring(0, 40) + '...' : entry.url;
+                const time = new Date(entry.timestamp).toLocaleTimeString();
+
+                return `
+                    <div class="history-item flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50">
+                        <div class="flex items-center gap-3 min-w-0">
+                            <span class="${colorClass} font-bold text-sm">${emoji}</span>
+                            <span class="text-sm text-gray-700 truncate" title="${entry.url}">${displayUrl}</span>
+                        </div>
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            <span class="text-xs font-bold ${colorClass}">${entry.score}%</span>
+                            <span class="text-xs text-gray-400">${time}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            historyCount.textContent = `${scanHistory.length} items`;
+        }
+
+        // ============================================================
+        // FUNCTION: Render Stats
+        // ============================================================
+        function renderStats() {
+            totalScans.textContent = stats.total;
+            threatsDetected.textContent = stats.threats;
+            safeUrls.textContent = stats.safe;
+            avgScore.textContent = stats.total > 0 ? Math.round(stats.totalScore / stats.total) + '%' : '0%';
+        }
+
+        // ============================================================
+        // FUNCTION: Show Toast
+        // ============================================================
+        function showToast(message, type = 'info') {
+            const existing = document.querySelector('.toast-notification');
+            if (existing) existing.remove();
+
+            const colors = {
+                success: 'bg-success text-white',
+                error: 'bg-danger text-white',
+                info: 'bg-primary text-white',
+                warning: 'bg-warning text-gray-900'
+            };
+
+            const toast = document.createElement('div');
+            toast.className = `toast-notification fixed bottom-6 right-6 px-6 py-3 rounded-xl shadow-lg ${colors[type] || colors.info} text-sm font-medium slide-up z-50 max-w-md`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(20px)';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // ============================================================
+        // FUNCTION: Check API Health
+        // ============================================================
+        async function checkHealth() {
+            try {
+                const res = await fetch(API_HEALTH);
+                if (res.ok) {
+                    navStatus.textContent = 'Connected';
+                    footerStatus.textContent = 'API Connected';
+                    navStatus.className = 'text-xs font-medium text-success';
+                    document.querySelector('.w-2.h-2.rounded-full.bg-success')?.classList.add('animate-pulse');
+                } else {
+                    throw new Error('API returned error');
+                }
+            } catch {
+                navStatus.textContent = 'Offline';
+                footerStatus.textContent = 'API Offline';
+                navStatus.className = 'text-xs font-medium text-danger';
+                document.querySelector('.w-2.h-2.rounded-full')?.classList.remove('animate-pulse');
+                document.querySelector('.w-2.h-2.rounded-full')?.classList.add('bg-danger');
+            }
+        }
+
+        // ============================================================
+        // FUNCTION: Clear History
+        // ============================================================
+        function clearHistory() {
+            if (confirm('Clear all scan history?')) {
+                scanHistory = [];
+                stats = { total: 0, threats: 0, safe: 0, totalScore: 0 };
+                localStorage.setItem('deepshield_history', JSON.stringify(scanHistory));
+                localStorage.setItem('deepshield_stats', JSON.stringify(stats));
+                renderHistory();
+                renderStats();
+                showToast('History cleared!', 'info');
+            }
+        }
+
+        // ============================================================
+        // FUNCTION: Export Results
+        // ============================================================
+        function exportResults() {
+            if (scanHistory.length === 0) {
+                showToast('No results to export!', 'warning');
+                return;
+            }
+            const data = JSON.stringify(scanHistory, null, 2);
+            const blob = new Blob([data], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `deepshield_scan_history_${new Date().toISOString().slice(0,10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('✅ Export complete!', 'success');
+        }
+
+        // ============================================================
+        // EVENT LISTENERS
+        // ============================================================
+
+        // Manual Scan
+        manualScanBtn.addEventListener('click', () => {
+            performScan(manualInput.value);
+        });
+
+        manualInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') performScan(manualInput.value);
+        });
+
+        // Example links
+        document.querySelectorAll('.example-link').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const url = btn.dataset.url;
+                manualInput.value = url;
+                performScan(url);
+            });
+        });
+
+        // Back to manual from batch
+        backToManual.addEventListener('click', () => {
+            batchSection.classList.add('hidden');
+            manualSection.style.display = 'block';
+        });
+
+        // Clear history
+        clearHistoryBtn.addEventListener('click', clearHistory);
+
+        // Export results
+        exportResultsBtn.addEventListener('click', exportResults);
+
+        // Theme toggle (light/dark - optional enhancement)
+        document.getElementById('themeToggle').addEventListener('click', () => {
+            const html = document.documentElement;
+            html.classList.toggle('dark');
+            const isDark = html.classList.contains('dark');
+            localStorage.setItem('deepshield_theme', isDark ? 'dark' : 'light');
+            showToast(isDark ? '🌙 Dark theme' : '☀️ Light theme', 'info');
+        });
+
+        // ============================================================
+        // BATCH SCAN (from extension via URL params)
         // ============================================================
         async function scanBatch(urls) {
             if (!urls || urls.length === 0) {
-                batchResults.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-500">No valid URLs found.</td></tr>`;
+                batchResults.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-500">No valid URLs found.</td></tr>`;
                 return;
             }
 
             manualSection.style.display = 'none';
             batchSection.classList.remove('hidden');
             batchResults.innerHTML = '';
-
             let completed = 0;
             const total = urls.length;
 
             for (let i = 0; i < urls.length; i++) {
                 const url = urls[i];
                 const row = document.createElement('tr');
-                row.className = 'border-b border-slate-700 hover:bg-slate-800/50 transition';
+                row.className = 'border-b border-gray-100 hover:bg-gray-50 transition';
                 row.innerHTML = `
-                    <td class="px-4 py-3 text-slate-500">${i + 1}</td>
-                    <td class="px-4 py-3 max-w-xs truncate text-cyan-300 text-xs">${url}</td>
-                    <td class="px-4 py-3" id="score-${i}">...</td>
-                    <td class="px-4 py-3" id="status-${i}">⏳ Scanning</td>
-                    <td class="px-4 py-3 max-w-xs truncate text-xs text-slate-400" id="explain-${i}">-</td>
+                    <td class="px-4 py-3 text-gray-500 text-xs">${i + 1}</td>
+                    <td class="px-4 py-3 max-w-xs truncate text-primary text-xs font-medium">${url}</td>
+                    <td class="px-4 py-3 text-xs font-bold" id="batch-score-${i}">...</td>
+                    <td class="px-4 py-3 text-xs" id="batch-status-${i}">⏳ Scanning</td>
+                    <td class="px-4 py-3 max-w-xs truncate text-xs text-gray-500" id="batch-explain-${i}">-</td>
                 `;
                 batchResults.appendChild(row);
 
@@ -236,62 +766,90 @@
                     });
                     const data = await res.json();
 
-                    document.getElementById(`score-${i}`).textContent = data.risk_score + '%';
+                    document.getElementById(`batch-score-${i}`).textContent = data.risk_score + '%';
+                    document.getElementById(`batch-score-${i}`).className = `px-4 py-3 text-xs font-bold ${data.risk_score > 60 ? 'text-danger' : data.risk_score > 35 ? 'text-warning' : 'text-success'}`;
 
-                    const statusCell = document.getElementById(`status-${i}`);
+                    const statusCell = document.getElementById(`batch-status-${i}`);
                     if (data.threat_level === 'CRITICAL') {
-                        statusCell.innerHTML = '<span class="text-red-400 font-bold">🚨 CRITICAL</span>';
+                        statusCell.innerHTML = '<span class="badge-critical px-2 py-0.5 rounded-full text-xs font-bold">🚨 CRITICAL</span>';
                     } else if (data.threat_level === 'WARNING') {
-                        statusCell.innerHTML = '<span class="text-yellow-400 font-bold">⚠️ WARNING</span>';
+                        statusCell.innerHTML = '<span class="badge-warning px-2 py-0.5 rounded-full text-xs font-bold">⚠️ WARNING</span>';
+                    } else if (data.threat_level === 'CAUTION') {
+                        statusCell.innerHTML = '<span class="badge-caution px-2 py-0.5 rounded-full text-xs font-bold">⚡ CAUTION</span>';
                     } else {
-                        statusCell.innerHTML = '<span class="text-green-400 font-bold">✅ SAFE</span>';
+                        statusCell.innerHTML = '<span class="badge-safe px-2 py-0.5 rounded-full text-xs font-bold">✅ SAFE</span>';
                     }
 
-                    document.getElementById(`explain-${i}`).textContent = data.short_explanation || 'N/A';
+                    document.getElementById(`batch-explain-${i}`).textContent = data.short_explanation || 'N/A';
+
+                    // Add to history
+                    addToHistory(url, data);
+                    updateStats(data);
 
                 } catch (e) {
-                    document.getElementById(`score-${i}`).textContent = 'ERR';
-                    document.getElementById(`status-${i}`).textContent = '❌ Failed';
+                    document.getElementById(`batch-score-${i}`).textContent = 'ERR';
+                    document.getElementById(`batch-status-${i}`).textContent = '❌ Failed';
                 }
 
                 completed++;
-                progressBar.style.width = Math.round((completed / total) * 100) + '%';
-                progressText.textContent = `${completed} / ${total} scanned`;
+                const percent = Math.round((completed / total) * 100);
+                batchProgressBar.style.width = percent + '%';
+                batchProgress.textContent = `${completed} / ${total} scanned`;
+
+                // Small delay to respect rate limits
+                if (i < urls.length - 1) {
+                    await new Promise(r => setTimeout(r, 500));
+                }
             }
-            progressText.textContent = `✅ Complete! ${total} links analyzed.`;
+            batchProgress.textContent = `✅ Complete! ${total} links analyzed.`;
+            showToast(`✅ Scanned ${total} URLs!`, 'success');
         }
 
         // ============================================================
-        // EVENT LISTENERS
-        // ============================================================
-        manualScanBtn.addEventListener('click', () => scanSingleUrl(manualInput.value, manualResult));
-        manualInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') scanSingleUrl(manualInput.value, manualResult);
-        });
-
-        // ============================================================
-        // ON LOAD: Parse URL Params
+        // ON LOAD: Parse URL Params + Initialize
         // ============================================================
         window.onload = function() {
+            // Check API health
+            checkHealth();
+
+            // Load theme preference
+            const savedTheme = localStorage.getItem('deepshield_theme');
+            if (savedTheme === 'dark') {
+                document.documentElement.classList.add('dark');
+            }
+
+            // Render saved data
+            renderHistory();
+            renderStats();
+
             const params = new URLSearchParams(window.location.search);
             const singleUrl = params.get('url');
             const urlsParam = params.get('urls');
 
             if (singleUrl) {
-                // Mode A: Deep-dive from extension "Report" button click
-                singleSection.classList.remove('hidden');
+                // Deep-dive from extension "Report" click
                 manualSection.style.display = 'none';
-                scanSingleUrl(singleUrl, singleResult, singleUrlDisplay);
+                document.getElementById('singleSection')?.remove();
+                // Show manual section with URL pre-filled
+                const scanContainer = document.createElement('div');
+                scanContainer.id = 'singleResult';
+                scanContainer.className = 'mt-6';
+                manualResult.parentNode.insertBefore(scanContainer, manualResult.nextSibling);
+                manualSection.style.display = 'block';
+                manualInput.value = singleUrl;
+                performScan(singleUrl, scanContainer);
             } else if (urlsParam) {
-                // Mode B: Batch from extension popup
+                // Batch from extension popup
                 const urls = decodeURIComponent(urlsParam).split(',').filter(u => u.startsWith('http'));
                 scanBatch(urls);
             } else {
-                // Mode C: Manual default
+                // Manual mode - default
                 manualSection.style.display = 'block';
-                singleSection.classList.add('hidden');
                 batchSection.classList.add('hidden');
             }
+
+            // Auto-check health every 30 seconds
+            setInterval(checkHealth, 30000);
         };
     </script>
 
