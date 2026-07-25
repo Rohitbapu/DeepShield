@@ -857,6 +857,20 @@
             // Auto-check health every 30 seconds
             setInterval(checkHealth, 30000);
         };
+
+        document.getElementById('addSafeListBtn')?.addEventListener('click', () => {
+  const domain = window.location.hostname.replace('www.', '');
+  // Store in localStorage (since this is the web app, not the extension)
+  // But we want it to sync with the extension's allowlist? The extension uses chrome.storage.
+  // We can't directly write to chrome.storage from a web page (unless it's the extension's popup).
+  // So we need to communicate via the extension's background script or use a message.
+  // Alternative: we can send a message to the extension via chrome.runtime.sendMessage.
+  // But that works only if the web page is part of the extension (it's not).
+  // Simpler: let the user add it via the extension popup, or we can store in localStorage for the web app's own use.
+  // For the web app, we can store in localStorage and show a message.
+  localStorage.setItem('deepshield_allowlist', JSON.stringify([...JSON.parse(localStorage.getItem('deepshield_allowlist')||'[]'), domain]));
+  showToast('✅ Site added to your personal safe list!', 'success');
+});
     </script>
 
 </body>
