@@ -1,6 +1,6 @@
 # ============================================================
-# DEEPSHIELD DLP V2.3 - PURE GROQ AI (No External APIs)
-# Run: uvicorn backend_main:app --host 0.0.0.0 --port 10000
+# DEEPSHIELD V2.5 - NVIDIA NIM (Gemma 2 27B) + Deterministic Scoring
+# Uses NVIDIA's free API with Gemma 2 27B for explanations
 # ============================================================
 
 import os
@@ -9,39 +9,28 @@ import math
 import json
 import logging
 from urllib.parse import urlparse
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 from dotenv import load_dotenv
-from groq import Groq
+import requests
 
-# ---------- CONFIG ----------
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+# ---------- CONFIG ----------
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
+NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
-if not GROQ_API_KEY:
-    logger.error("CRITICAL: GROQ_API_KEY missing!")
-    raise ValueError("GROQ_API_KEY environment variable is required")
+if not NVIDIA_API_KEY:
+    logger.warning("NVIDIA_API_KEY not set! Using fallback.")
 
-# ---------- INIT APP ----------
-app = FastAPI(title="DeepShield DLP - Pure Groq AI", version="2.3")
+app = FastAPI(title="DeepShield DLP - NVIDIA NIM", version="2.5")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ---------- GROQ CLIENT ----------
-groq_client = Groq(api_key=GROQ_API_KEY)
-
-# ---------- HELPER: Calculate Entropy ----------
+# ---------- DETERMINISTIC SCORING ENGINE ----------
 def calculate_entropy(text: str) -> float:
-    """Calculate Shannon entropy for domain randomness detection."""
     if not text:
         return 0
     entropy = 0
@@ -50,167 +39,157 @@ def calculate_entropy(text: str) -> float:
         entropy += -p_x * math.log(p_x, 2)
     return entropy
 
-# ---------- HELPER: Extract Heuristic Flags ----------
-def extract_heuristic_flags(url: str) -> list:
-    """
-    Extract heuristic flags for the Groq prompt.
-    These are NOT used for scoring - only as context for Groq.
-    """
+def get_deterministic_score_and_flags(url: str) -> tuple:
+    """Returns (risk_score 0-100, list_of_flags) based on fixed rules."""
     parsed = urlparse(url)
     domain = parsed.netloc
-    path = parsed.path
+    domain_name = domain.split('.')[0] if '.' in domain else domain
 
+    score = 0
     flags = []
 
-    # 1. Entropy check
-    domain_name = domain.split('.')[0] if '.' in domain else domain
+    # 1. Entropy (max +20)
     entropy = calculate_entropy(domain_name)
     if entropy > 3.8:
-        flags.append(f"High domain entropy ({entropy:.2f}) - suggests algorithmic generation (DGA)")
+        score += 20
+        flags.append(f"High entropy ({entropy:.2f}) indicates algorithmic generation (DGA)")
 
-    # 2. IP address check
+    # 2. IP address (max +30)
     if re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', domain):
-        flags.append("Uses raw IP address instead of domain name - bypasses DNS filters")
+        score += 30
+        flags.append("Uses raw IP address instead of domain name")
 
-    # 3. Suspicious TLDs
+    # 3. Suspicious TLDs (max +20)
     suspicious_tlds = ['.top', '.xyz', '.click', '.download', '.review', '.loan', 
                        '.men', '.win', '.bid', '.tk', '.ml', '.ga', '.cf']
-    for tld in suspicious_tlds:
-        if domain.endswith(tld):
-            flags.append(f"Suspicious TLD ({tld}) - commonly used for phishing")
-            break
+    if any(domain.endswith(tld) for tld in suspicious_tlds):
+        score += 20
+        tld = domain.split('.')[-1]
+        flags.append(f"Suspicious TLD (.{tld}) commonly used for phishing")
 
-    # 4. Suspicious keywords
+    # 4. Suspicious keywords (max +15)
     keywords = ['login', 'verify', 'update', 'secure', 'account', 'banking', 
                 'paypal', 'auth', 'confirm', 'signin', 'reset', 'password']
-    found_keywords = [kw for kw in keywords if kw in url.lower()]
-    if found_keywords:
-        flags.append(f"Contains deceptive keywords: {', '.join(found_keywords[:3])}")
+    found = [kw for kw in keywords if kw in url.lower()]
+    if found:
+        score += min(15, len(found) * 5)
+        flags.append(f"Contains deceptive keywords: {', '.join(found[:3])}")
 
-    # 5. Subdomain count
+    # 5. Subdomain count (max +15)
     subdomains = domain.split('.')
     num_subdomains = len(subdomains) - 2 if len(subdomains) > 2 else 0
     if num_subdomains > 2:
-        flags.append(f"Excessive subdomains ({num_subdomains}) - masquerading attempt")
+        score += min(15, num_subdomains * 5)
+        flags.append(f"Excessive subdomains ({num_subdomains})")
 
-    # 6. URL length
+    # 6. URL length (max +10)
     if len(url) > 100:
-        flags.append("Unusually long URL - likely obfuscated")
+        score += 10
+        flags.append("Unusually long URL")
 
+    # Cap at 100
+    score = min(score, 100)
+
+    # If no flags, add a safe note
     if not flags:
-        flags.append("No obvious structural anomalies detected")
+        flags.append("No suspicious patterns detected")
 
-    return flags
+    return score, flags
 
-# ---------- THE GROQ AI PROMPT ----------
-def build_ai_prompt(url: str, flags: list) -> str:
+# ---------- NVIDIA NIM EXPLANATION GENERATOR ----------
+def generate_nvidia_explanation(url: str, risk_score: int, flags: list) -> dict:
+    """Uses NVIDIA NIM (Gemma 2 27B) to generate explanation."""
+    
+    if not NVIDIA_API_KEY:
+        return {
+            "short": f"Risk score: {risk_score}%",
+            "detailed": f"Risk score: {risk_score}%. Flags: {', '.join(flags)}"
+        }
+
     flag_text = "\n".join([f"  - {f}" for f in flags])
 
     prompt = f"""
-You are DeepShield, a strict enterprise-grade cybersecurity AI.
+You are DeepShield, an enterprise cybersecurity AI.
 
-**YOUR TASK:** Analyze this URL for phishing or malicious activity:
-{url}
+URL: {url}
+Deterministic Risk Score: {risk_score}/100 (computed from structural flags)
 
-**TECHNICAL TELEMETRY (Structural Analysis):**
+Technical Flags Detected:
 {flag_text}
 
-**INSTRUCTIONS:**
-1. Based on the telemetry above, determine if this URL is phishing/malicious.
-2. Return ONLY a JSON object with these exact keys. No other text.
+TASK: Write a human-readable explanation for this URL.
+Return a JSON with two fields:
+1. "short": A single, punchy sentence for a browser badge (max 80 characters).
+2. "detailed": A 2-3 sentence technical analysis explaining why the URL is risky or safe.
 
-**OUTPUT FORMAT:**
-{{
-  "risk_score": "integer 0-100",
-  "threat_level": "SAFE or WARNING or CRITICAL",
-  "short_explanation": "A single sentence for a browser badge (max 80 characters)",
-  "detailed_analysis": "A 2-3 sentence technical report for a security team"
-}}
+Guidelines:
+- If score > 60: be clearly alarming.
+- If score 30-60: express caution.
+- If score < 30: reassure safety.
+- Base your explanation strictly on the flags above.
+- Keep tone professional and authoritative.
 
-**SCORING GUIDELINES:**
-- 0-25: SAFE - No suspicious indicators, legitimate domain
-- 26-55: WARNING - Some anomalies, exercise caution
-- 56-100: CRITICAL - Strong evidence of phishing/malware
-
-**RULES:**
-- Be conservative. When in doubt, give a lower score.
-- Base your score on the flags above, not external knowledge.
-- If there are no flags, score 0-10 (SAFE).
-- Never guess. Only use the telemetry provided.
+OUTPUT FORMAT (STRICT JSON):
+{{"short": "...", "detailed": "..."}}
 """
-    return prompt
-
-# ---------- GROQ ANALYSIS FUNCTION ----------
-def analyze_with_groq(url: str) -> dict:
-    """Call Groq for URL analysis and return structured result."""
+    headers = {
+        "Authorization": f"Bearer {NVIDIA_API_KEY}",
+        "Content-Type": "application/json"
+    }
     
-    # 1. Extract heuristic flags
-    flags = extract_heuristic_flags(url)
-    logger.info(f"Extracted flags for {url}: {flags}")
+    payload = {
+        "model": "google/gemma-2-27b-it",
+        "messages": [
+            {"role": "system", "content": "You are DeepShield. Always respond with valid JSON only."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.0,
+        "max_tokens": 300,
+        "top_p": 0.95,
+        "stream": False
+    }
 
-    # 2. Build prompt
-    prompt = build_ai_prompt(url, flags)
-
-    # 3. Call Groq
     try:
-        response = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": "You are DeepShield, a cybersecurity AI. Always respond with valid JSON only."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,  # Low temperature for deterministic output
-            max_tokens=300,
-            response_format={"type": "json_object"}
-        )
-
-        raw = response.choices[0].message.content.strip()
-        logger.info(f"Groq response: {raw[:200]}...")
-
-        # 4. Parse JSON
-        result = json.loads(raw)
-
-        # 5. Validate and sanitize
-        risk_score = int(result.get("risk_score", 50))
-        if risk_score < 0 or risk_score > 100:
-            risk_score = 50
-
-        threat_level = result.get("threat_level", "WARNING")
-        if threat_level not in ["SAFE", "WARNING", "CRITICAL"]:
-            threat_level = "WARNING"
-
+        response = requests.post(NVIDIA_URL, headers=headers, json=payload, timeout=15)
+        
+        if response.status_code == 200:
+            data = response.json()
+            raw = data["choices"][0]["message"]["content"].strip()
+            
+            # Try to parse JSON (handle markdown if present)
+            if raw.startswith("```json"):
+                raw = raw.replace("```json", "").replace("```", "").strip()
+            elif raw.startswith("```"):
+                raw = raw.replace("```", "").strip()
+            
+            result = json.loads(raw)
+            return {
+                "short": result.get("short", f"Risk score: {risk_score}%"),
+                "detailed": result.get("detailed", f"Risk score: {risk_score}%. Flags: {', '.join(flags)}")
+            }
+        else:
+            logger.error(f"NVIDIA API error: {response.status_code} - {response.text}")
+            return {
+                "short": f"Risk score: {risk_score}%",
+                "detailed": f"Risk score: {risk_score}%. NVIDIA API unavailable. Flags: {', '.join(flags)}"
+            }
+            
+    except requests.exceptions.Timeout:
+        logger.error("NVIDIA API timeout")
         return {
-            "risk_score": risk_score,
-            "threat_level": threat_level,
-            "short_explanation": result.get("short_explanation", "Suspicious link detected"),
-            "detailed_analysis": result.get("detailed_analysis", "No detailed analysis available."),
-            "heuristics_flagged": flags
+            "short": f"Risk score: {risk_score}%",
+            "detailed": f"Risk score: {risk_score}%. Explanation timeout."
         }
-
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON parse error: {e}")
-        return {
-            "risk_score": 50,
-            "threat_level": "WARNING",
-            "short_explanation": "Analysis unavailable",
-            "detailed_analysis": f"AI response was not valid JSON: {raw[:100] if 'raw' in locals() else 'Unknown error'}",
-            "heuristics_flagged": flags
-        }
-
     except Exception as e:
-        logger.error(f"Groq API error: {e}")
+        logger.error(f"NVIDIA API error: {e}")
         return {
-            "risk_score": 30,
-            "threat_level": "WARNING",
-            "short_explanation": "Analysis temporarily unavailable",
-            "detailed_analysis": f"Groq API error: {str(e)}",
-            "heuristics_flagged": flags
+            "short": f"Risk score: {risk_score}%",
+            "detailed": f"Risk score: {risk_score}%. Error: {str(e)[:100]}"
         }
 
-# ---------- API MODELS ----------
+# ---------- API ----------
 class ScanRequest(BaseModel):
     url: str
-
     @field_validator('url')
     def validate_url(cls, v):
         if not v.startswith(('http://', 'https://')):
@@ -225,41 +204,39 @@ class ScanResponse(BaseModel):
     detailed_analysis: str
     heuristics_flagged: list
 
-# ---------- API ENDPOINT ----------
 @app.post("/api/v1/scan", response_model=ScanResponse)
 async def scan_url(payload: ScanRequest):
     url = payload.url
-    logger.info(f"🔍 Scanning: {url}")
+    logger.info(f"Scanning: {url}")
 
-    # Analyze with Groq
-    result = analyze_with_groq(url)
+    # 1. Deterministic scoring (always the same for the same URL)
+    risk_score, flags = get_deterministic_score_and_flags(url)
+
+    # 2. Threat level
+    if risk_score > 60:
+        threat_level = "CRITICAL"
+    elif risk_score > 30:
+        threat_level = "WARNING"
+    else:
+        threat_level = "SAFE"
+
+    # 3. NVIDIA explanation
+    xai = generate_nvidia_explanation(url, risk_score, flags)
 
     return ScanResponse(
         url=url,
-        risk_score=result["risk_score"],
-        threat_level=result["threat_level"],
-        short_explanation=result["short_explanation"],
-        detailed_analysis=result["detailed_analysis"],
-        heuristics_flagged=result["heuristics_flagged"]
+        risk_score=risk_score,
+        threat_level=threat_level,
+        short_explanation=xai["short"],
+        detailed_analysis=xai["detailed"],
+        heuristics_flagged=flags
     )
 
-# ---------- HEALTH CHECK ----------
 @app.get("/")
 async def health_check():
     return {
-        "status": "DeepShield DLP V2.3 Online",
-        "engine": "Groq Llama-3 (Pure AI)",
-        "api_key_configured": "Yes" if GROQ_API_KEY else "No"
-    }
-
-# ---------- OPTIONAL: DEBUG ENDPOINT ----------
-@app.post("/api/v1/debug")
-async def debug_url(payload: ScanRequest):
-    """Debug endpoint to see raw flags without Groq call."""
-    url = payload.url
-    flags = extract_heuristic_flags(url)
-    return {
-        "url": url,
-        "heuristics_flagged": flags,
-        "note": "This is only the heuristic analysis, not the AI score."
+        "status": "DeepShield V2.5 Online",
+        "engine": "NVIDIA NIM (Gemma 2 27B)",
+        "nvidia_api_configured": "Yes" if NVIDIA_API_KEY else "No",
+        "score_method": "rule-based (consistent)"
     }
