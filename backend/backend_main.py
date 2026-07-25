@@ -1,6 +1,7 @@
 # ============================================================
-# DEEPSHIELD DLP V2.8 - UPDATED SCORING ENGINE
-# Fixed: Properly detects brand impersonation + phishing patterns
+# DEEPSHIELD V2.9 - GEMINI SCORING + SAFE DOMAIN WHITELIST
+# Gemini generates both risk score AND explanation.
+# Heuristics are only used as context, not for scoring.
 # ============================================================
 
 import os
@@ -28,8 +29,25 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# ---------- UPDATED SCORING ENGINE ----------
+# ---------- SAFE DOMAIN WHITELIST ----------
+SAFE_DOMAINS = {
+    'google.com', 'google.co.in', 'gmail.com', 'youtube.com', 'github.com',
+    'stackoverflow.com', 'microsoft.com', 'apple.com', 'amazon.com',
+    'netflix.com', 'spotify.com', 'twitter.com', 'facebook.com',
+    'instagram.com', 'linkedin.com', 'reddit.com', 'wikipedia.org',
+    'bbc.com', 'cnn.com', 'nytimes.com', 'medium.com', 'dev.to',
+    'vercel.com', 'netlify.com', 'render.com', 'heroku.com'
+}
 
+def is_safe_domain(url: str) -> bool:
+    parsed = urlparse(url)
+    domain = parsed.netloc.lower()
+    # Remove www. prefix
+    if domain.startswith('www.'):
+        domain = domain[4:]
+    return domain in SAFE_DOMAINS
+
+# ---------- HEURISTIC EXTRACTOR (NO SCORING) ----------
 def calculate_entropy(text: str) -> float:
     if not text:
         return 0
@@ -39,174 +57,94 @@ def calculate_entropy(text: str) -> float:
         entropy += -p_x * math.log(p_x, 2)
     return entropy
 
-# Brand keywords to detect phishing impersonation
-BRAND_KEYWORDS = [
-    'paypal', 'amazon', 'apple', 'microsoft', 'google', 'netflix', 
-    'spotify', 'facebook', 'instagram', 'twitter', 'linkedin',
-    'bank', 'banking', 'chase', 'wells fargo', 'boa', 'hsbc',
-    'docusign', 'dropbox', 'adobe', 'outlook', 'office365'
-]
-
-# Generic deceptive keywords
-DECEPTIVE_KEYWORDS = [
-    'login', 'verify', 'update', 'secure', 'account', 'auth', 
-    'confirm', 'signin', 'reset', 'password', 'validate',
-    'authenticate', 'recover', 'unlock', 'alert', 'notice'
-]
-
-# Suspicious TLDs
-SUSPICIOUS_TLDS = ['.top', '.xyz', '.click', '.download', '.review', '.loan', 
-                   '.men', '.win', '.bid', '.tk', '.ml', '.ga', '.cf', 
-                   '.work', '.date', '.party', '.racing', '.online']
-
-def get_deterministic_score_and_flags(url: str) -> tuple:
-    """Enhanced scoring with brand detection."""
+def extract_heuristic_flags(url: str) -> list:
+    """Extract flags WITHOUT scoring. These are fed to Gemini."""
     parsed = urlparse(url)
     domain = parsed.netloc
     domain_name = domain.split('.')[0] if '.' in domain else domain
     path = parsed.path
 
-    score = 0
     flags = []
-    severity = "LOW"  # Track overall severity
 
-    # ---------- 1. ENTROPY (DGA detection) ----------
+    # 1. Entropy
     entropy = calculate_entropy(domain_name)
     if entropy > 3.8:
-        score += 15
-        flags.append(f"High entropy ({entropy:.2f}) - possible algorithmic generation (DGA)")
-        severity = "HIGH"
+        flags.append(f"High domain entropy ({entropy:.2f}) – algorithmic generation possible")
 
-    # ---------- 2. IP ADDRESS ----------
+    # 2. IP address
     if re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', domain):
-        score += 35  # Increased from 30
-        flags.append("Uses raw IP address - bypasses DNS filters")
-        severity = "CRITICAL"
+        flags.append("Uses raw IP address instead of domain name – bypasses DNS filters")
 
-    # ---------- 3. BRAND IMPERSONATION (NEW - CRITICAL) ----------
-    brand_found = []
-    for brand in BRAND_KEYWORDS:
-        if brand in url.lower():
-            brand_found.append(brand)
-    
-    if brand_found:
-        score += 35  # Major penalty for brand impersonation
-        flags.append(f"Brand impersonation detected: {', '.join(brand_found[:3])}")
-        severity = "HIGH"
-
-    # ---------- 4. SUSPICIOUS TLD ----------
-    tld_found = None
-    for tld in SUSPICIOUS_TLDS:
+    # 3. Suspicious TLD
+    suspicious_tlds = ['.top', '.xyz', '.click', '.download', '.review', '.loan',
+                       '.men', '.win', '.bid', '.tk', '.ml', '.ga', '.cf']
+    for tld in suspicious_tlds:
         if domain.endswith(tld):
-            tld_found = tld
-            score += 25  # Increased from 20
-            flags.append(f"Suspicious TLD ({tld}) - widely used for phishing")
-            severity = "HIGH"
+            flags.append(f"Suspicious TLD ({tld}) – often used in phishing")
             break
 
-    # ---------- 5. DECEPTIVE KEYWORDS ----------
-    deceptive_found = []
-    for kw in DECEPTIVE_KEYWORDS:
-        if kw in url.lower():
-            deceptive_found.append(kw)
-    
-    if deceptive_found:
-        score += min(15, len(deceptive_found) * 5)
-        flags.append(f"Contains deceptive keywords: {', '.join(deceptive_found[:3])}")
-        if len(deceptive_found) > 2:
-            severity = "HIGH"
+    # 4. Brand impersonation
+    brands = ['paypal', 'amazon', 'apple', 'microsoft', 'google', 'netflix', 'facebook']
+    found_brands = [b for b in brands if b in url.lower()]
+    if found_brands:
+        flags.append(f"Brand impersonation: {', '.join(found_brands[:2])}")
 
-    # ---------- 6. SUBDOMAINS ----------
+    # 5. Deceptive keywords
+    keywords = ['login', 'verify', 'update', 'secure', 'account', 'auth', 'confirm', 'signin', 'reset', 'password']
+    found_keywords = [kw for kw in keywords if kw in url.lower()]
+    if found_keywords:
+        flags.append(f"Deceptive keywords: {', '.join(found_keywords[:3])}")
+
+    # 6. Subdomain count
     subdomains = domain.split('.')
     num_subdomains = len(subdomains) - 2 if len(subdomains) > 2 else 0
     if num_subdomains > 2:
-        score += min(20, num_subdomains * 5)  # Increased from 15
-        flags.append(f"Excessive subdomains ({num_subdomains}) - masquerading attempt")
+        flags.append(f"Excessive subdomains ({num_subdomains}) – possible masquerading")
 
-    # ---------- 7. URL LENGTH ----------
+    # 7. URL length & path depth
     if len(url) > 100:
-        score += 10
-        flags.append("Unusually long URL - likely obfuscated")
+        flags.append(f"Unusually long URL ({len(url)} chars)")
+    path_depth = path.count('/')
+    if path_depth > 4:
+        flags.append(f"Deep URL path ({path_depth} levels) – suspicious nesting")
 
-    # ---------- 8. URL PATH DEPTH (NEW) ----------
-    if path:
-        path_depth = path.count('/')
-        if path_depth > 4:
-            score += 10
-            flags.append(f"Deep URL path ({path_depth} levels) - suspicious nesting")
-
-    # ---------- 9. HYPHEN COUNT (NEW) ----------
-    hyphen_count = url.count('-')
-    if hyphen_count > 4:
-        score += 10
-        flags.append(f"Excessive hyphens ({hyphen_count}) - attempts to evade detection")
-
-    # ---------- 10. BRAND + TLD COMBINATION (NEW - CRITICAL) ----------
-    if brand_found and tld_found:
-        score += 15  # Bonus penalty for the combination
-        flags.append("⚠️ Brand impersonation on suspicious TLD - confirmed phishing pattern")
-        severity = "CRITICAL"
-
-    # ---------- 11. SPECIAL CHARACTERS (NEW) ----------
-    special_chars = len(re.findall(r'[^a-zA-Z0-9\-\.\/:]', url))
-    if special_chars > 5:
-        score += 10
-        flags.append(f"Excessive special characters ({special_chars}) - obfuscation attempt")
-
-    # ---------- FINAL SCORE ----------
-    # Cap at 100
-    score = min(score, 100)
-
-    # Set severity level
-    if score > 60:
-        severity = "CRITICAL"
-    elif score > 35:
-        severity = "HIGH"
-    elif score > 15:
-        severity = "MEDIUM"
-    else:
-        severity = "LOW"
-
-    # If no flags detected
     if not flags:
-        flags.append("No suspicious patterns detected")
+        flags.append("No obvious structural anomalies detected")
 
-    # Add severity summary
-    flags.insert(0, f"⚠️ Overall Severity: {severity}")
+    return flags
 
-    return score, flags
-
-# ---------- GEMINI EXPLANATION ----------
-
-def generate_gemini_explanation(url: str, risk_score: int, flags: list) -> dict:
-    """Generate human-readable explanation with Gemini."""
-    
-    flag_text = "\n".join([f"  - {f}" for f in flags if not f.startswith("⚠️")])
-    severity = "CRITICAL" if risk_score > 60 else "WARNING" if risk_score > 35 else "CAUTION" if risk_score > 15 else "SAFE"
+# ---------- GEMINI SCORING + EXPLANATION ----------
+def analyze_with_gemini(url: str, flags: list) -> dict:
+    """Gemini generates risk_score, threat_level, short, detailed."""
+    flag_text = "\n".join([f"  - {f}" for f in flags])
 
     prompt = f"""
 You are DeepShield, an enterprise cybersecurity AI.
 
-URL: {url}
-Risk Score: {risk_score}/100
-Overall Severity: {severity}
+**URL:** {url}
 
-Technical Flags:
+**Technical Telemetry (Structural Analysis):**
 {flag_text}
 
-TASK: Write a JSON response:
-1. "short": One sentence for a browser badge (max 80 characters)
-2. "detailed": A 3-4 sentence technical explanation
+**TASK:** Assess the phishing/malicious risk of this URL.
+- Return a JSON with these keys:
+  - "risk_score": integer 0-100 (0 = completely safe, 100 = highly malicious)
+  - "threat_level": "SAFE" or "WARNING" or "CRITICAL"
+  - "short_explanation": one sentence for a browser badge (max 80 chars)
+  - "detailed_analysis": 2-3 sentences explaining your reasoning
 
-Guidelines:
-- Score > 60: Clearly alarming, mention specific threats
-- Score 35-60: Express caution, explain suspicious elements
-- Score 15-35: Low risk, explain why
-- Score < 15: Reassuring
-- Focus on the most severe flags
+**SCORING GUIDELINES:**
+- Score 0-15: SAFE – legitimate, well-known domain, no suspicious indicators.
+- Score 16-40: WARNING – some anomalies but not clearly malicious.
+- Score 41-100: CRITICAL – clear signs of phishing/malware.
 
-OUTPUT FORMAT (STRICT JSON):
-{{"short": "...", "detailed": "..."}}
+**IMPORTANT:**
+- Be conservative. If the URL is a well-known safe domain (google.com, github.com), score 0-5.
+- Base your score on the flags above. Use them as evidence.
+- Do not guess. Only use the provided telemetry.
+
+**OUTPUT FORMAT (STRICT JSON):**
+{{"risk_score": 0, "threat_level": "SAFE", "short_explanation": "...", "detailed_analysis": "..."}}
 """
     try:
         response = client.models.generate_content(
@@ -215,31 +153,33 @@ OUTPUT FORMAT (STRICT JSON):
             config={
                 "response_mime_type": "application/json",
                 "temperature": 0.0,
-                "max_output_tokens": 300,
+                "max_output_tokens": 350,
             }
         )
-        
         raw = response.text.strip()
+        # Clean markdown if present
         if raw.startswith("```json"):
             raw = raw.replace("```json", "").replace("```", "").strip()
         elif raw.startswith("```"):
             raw = raw.replace("```", "").strip()
-            
         result = json.loads(raw)
         return {
-            "short": result.get("short", f"Risk: {risk_score}%"),
-            "detailed": result.get("detailed", f"Flags: {', '.join(flags)}")
+            "risk_score": int(result.get("risk_score", 20)),
+            "threat_level": result.get("threat_level", "WARNING"),
+            "short_explanation": result.get("short_explanation", "Suspicious link"),
+            "detailed_analysis": result.get("detailed_analysis", "No analysis available.")
         }
-        
     except Exception as e:
         logger.error(f"Gemini error: {e}")
+        # Conservative fallback: use low score
         return {
-            "short": f"Risk: {risk_score}%",
-            "detailed": f"Technical flags: {', '.join(flags)}"
+            "risk_score": 10,
+            "threat_level": "SAFE",
+            "short_explanation": "Analysis unavailable – treated as safe.",
+            "detailed_analysis": f"Gemini API error. Flags: {', '.join(flags)}"
         }
 
 # ---------- API ----------
-
 class ScanRequest(BaseModel):
     url: str
     @field_validator('url')
@@ -261,43 +201,38 @@ async def scan_url(payload: ScanRequest):
     url = payload.url
     logger.info(f"Scanning: {url}")
 
-    # Get deterministic score
-    risk_score, flags = get_deterministic_score_and_flags(url)
+    # 1. Extract heuristic flags (no scoring)
+    flags = extract_heuristic_flags(url)
 
-    # Determine threat level
-    if risk_score > 60:
-        threat_level = "CRITICAL"
-    elif risk_score > 35:
-        threat_level = "WARNING"
-    elif risk_score > 15:
-        threat_level = "CAUTION"
-    else:
-        threat_level = "SAFE"
+    # 2. Check safe domain whitelist
+    if is_safe_domain(url):
+        logger.info(f"URL is in safe domain whitelist: {url}")
+        return ScanResponse(
+            url=url,
+            risk_score=0,
+            threat_level="SAFE",
+            short_explanation="✅ This is a well-known safe domain.",
+            detailed_analysis="The domain is whitelisted as a trusted, legitimate service. No further analysis needed.",
+            heuristics_flagged=flags
+        )
 
-    # Get Gemini explanation
-    xai = generate_gemini_explanation(url, risk_score, flags)
+    # 3. Gemini AI scoring + explanation
+    ai_result = analyze_with_gemini(url, flags)
 
     return ScanResponse(
         url=url,
-        risk_score=risk_score,
-        threat_level=threat_level,
-        short_explanation=xai["short"],
-        detailed_analysis=xai["detailed"],
+        risk_score=ai_result["risk_score"],
+        threat_level=ai_result["threat_level"],
+        short_explanation=ai_result["short_explanation"],
+        detailed_analysis=ai_result["detailed_analysis"],
         heuristics_flagged=flags
     )
 
 @app.get("/")
 async def health_check():
     return {
-        "status": "DeepShield V2.8 Online",
-        "engine": "Enhanced Deterministic Scoring + Gemini AI",
-        "score_method": "rule-based with brand detection",
-        "features": [
-            "Brand impersonation detection",
-            "Suspicious TLD scoring",
-            "Deceptive keyword detection",
-            "Entropy analysis",
-            "Path depth analysis",
-            "Special character detection"
-        ]
+        "status": "DeepShield V2.9 Online",
+        "engine": "Gemini 2.5 Flash (scoring + explanation)",
+        "whitelist": "Active",
+        "fallback": "Conservative (score=10 if AI fails)"
     }
