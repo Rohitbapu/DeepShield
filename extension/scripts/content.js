@@ -1,9 +1,12 @@
 // ============================================================
-// DEEPSHIELD V2.7 - CONTENT SCRIPT (DOM VISUALIZER)
+// DEEPSHIELD V2.9 - CONTENT SCRIPT (SILENT FOR SAFE URLS)
+// Only highlights and badges for dangerous URLs.
 // ============================================================
 
 const BADGE_CLASS = 'ds-badge';
 const DANGER_CLASS = 'ds-danger';
+const THRESHOLD = 40; // Only show badges if risk_score > 40
+
 let processedUrls = new Set();
 
 function isProtectionActive() {
@@ -27,26 +30,36 @@ function isProtectionActive() {
 
 function injectBadge(anchor, riskData) {
     const url = anchor.href;
-    if (!url || processedUrls.has(url)) return;
-
     const score = riskData.risk_score || 0;
+
+    // ---------- ONLY proceed if score > THRESHOLD ----------
+    if (score <= THRESHOLD) {
+        // Do nothing for safe URLs – no badge, no highlight
+        return;
+    }
+
+    // If already processed, skip
+    if (processedUrls.has(url)) return;
+
     const isDanger = score > 60;
-    const isWarning = score > 30 && score <= 60;
+    const isWarning = score > 40 && score <= 60;
     const tooltip = riskData.short_explanation || "Suspicious link detected";
 
+    // Find all anchors with this exact URL
     const allMatchingAnchors = document.querySelectorAll(`a[href="${url}"]`);
     
+    // Highlight all matching anchors
     allMatchingAnchors.forEach(a => {
         if (isDanger) {
             a.classList.add(DANGER_CLASS);
         } else if (isWarning) {
-            a.style.borderBottom = '2px solid #facc15';
-            a.style.backgroundColor = 'rgba(250, 204, 21, 0.05)';
-        } else {
-            a.style.borderBottom = '2px solid #10b981';
+            a.style.border = '2px solid #facc15';
+            a.style.backgroundColor = 'rgba(250, 204, 21, 0.08)';
+            a.style.borderRadius = '4px';
         }
     });
 
+    // Only inject badge on the FIRST anchor to avoid clutter
     if (anchor !== allMatchingAnchors[0]) {
         processedUrls.add(url);
         return;
@@ -54,18 +67,21 @@ function injectBadge(anchor, riskData) {
 
     processedUrls.add(url);
 
+    // Create badge
     const badge = document.createElement('span');
-    badge.className = `ds-badge ${isDanger ? 'ds-badge-danger' : isWarning ? 'ds-badge-warning' : 'ds-badge-safe'}`;
-    const emoji = isDanger ? '🚨' : isWarning ? '⚠️' : '✅';
+    badge.className = `ds-badge ${isDanger ? 'ds-badge-danger' : 'ds-badge-warning'}`;
+    const emoji = isDanger ? '🚨' : '⚠️';
     badge.textContent = `${emoji} ${score}%`;
     badge.title = tooltip;
     
+    // Click handler: opens deep-dive report
     badge.addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
         chrome.runtime.sendMessage({ action: "open_report", url: url });
     });
 
+    // Insert badge after the anchor
     anchor.parentNode.insertBefore(badge, anchor.nextSibling);
 }
 
@@ -84,6 +100,13 @@ chrome.runtime.onMessage.addListener((msg) => {
             console.warn("DeepShield error for", url, error);
             return;
         }
+
+        // Only proceed if risk_score > THRESHOLD
+        if (data.risk_score <= THRESHOLD) {
+            // Safe URL – do nothing
+            return;
+        }
+
         const anchors = document.querySelectorAll(`a[href="${url}"]`);
         if (anchors.length > 0) {
             injectBadge(anchors[0], data);
@@ -167,8 +190,10 @@ chrome.runtime.onMessage.addListener((msg) => {
     }
 });
 
+// Initial scan
 setTimeout(scanExistingLinks, 1500);
 
+// Dynamic link observer
 const observer = new MutationObserver((mutations) => {
     mutations.forEach(m => {
         m.addedNodes.forEach(node => {
