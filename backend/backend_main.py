@@ -1,7 +1,5 @@
 # ============================================================
-# DEEPSHIELD V2.16 - PURE ML + GEMINI (NO FALLBACK)
-# ML model from phishing-detection-py is the ONLY scorer.
-# Gemini only generates explanations.
+# DEEPSHIELD V2.16 - GEMINI WITH FALLBACK (ALWAYS STARTS)
 # ============================================================
 
 import os
@@ -13,18 +11,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 from dotenv import load_dotenv
-from google import genai
-from phishing_detection_py import PhishingDetector  # MUST be installed
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# ---------- API KEYS ----------
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    logger.error("GEMINI_API_KEY is required but not set")
-    raise ValueError("GEMINI_API_KEY is required")
 
 # ---------- INIT FASTAPI ----------
 app = FastAPI()
@@ -38,6 +28,7 @@ app.add_middleware(
 
 # ---------- INIT ML MODEL ----------
 try:
+    from phishing_detection_py import PhishingDetector
     detector = PhishingDetector()
     if torch.cuda.is_available():
         detector.model_pipeline.model.to('cuda:0')
@@ -49,15 +40,38 @@ except Exception as e:
     logger.error(f"Failed to load ML model: {e}")
     raise RuntimeError("ML model not available")
 
-# ---------- INIT GEMINI ----------
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-logger.info("✅ Gemini client initialized")
+# ---------- INIT GEMINI (WITH FALLBACK) ----------
+gemini_available = False
+gemini_client = None
+
+try:
+    from google import genai
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    if GEMINI_API_KEY:
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        gemini_available = True
+        logger.info("✅ Gemini client initialized (google.genai)")
+    else:
+        logger.warning("⚠️ GEMINI_API_KEY not set. Gemini disabled.")
+except Exception as e:
+    logger.error(f"⚠️ Failed to initialize Gemini: {e}")
+    gemini_available = False
 
 # ============================================================
-# GEMINI EXPLANATION (No fallback – if Gemini fails, return error)
+# EXPLANATION GENERATOR (Gemini or Fallback)
 # ============================================================
 
-def generate_gemini_explanation(url: str, is_phish: bool, ml_score: float):
+def generate_explanation(url: str, is_phish: bool, ml_score: float):
+    if not gemini_available or gemini_client is None:
+        # Fallback: basic explanation
+        if is_phish:
+            short = f"🚨 Phishing ({ml_score:.0%} confidence)"
+            detailed = f"The ML model classified this URL as phishing with {ml_score:.1%} confidence. Exercise caution."
+        else:
+            short = f"✅ Safe ({ml_score:.0%} confidence)"
+            detailed = f"The ML model classified this URL as safe with {ml_score:.1%} confidence. No phishing indicators detected."
+        return {"short": short, "detailed": detailed}
+
     prompt = f"""
 You are DeepShield, an enterprise cybersecurity AI.
 
@@ -96,13 +110,12 @@ OUTPUT FORMAT (STRICT JSON):
             "detailed": result.get("detailed", f"ML confidence: {ml_score:.1%}")
         }
     except Exception as e:
-        logger.error(f"Gemini error: {e}")
-        # Return a generic explanation but we still consider it a failure to generate
-        # but we don't fallback to heuristics. We just return generic text.
-        return {
-            "short": "🚨 Phishing" if is_phish else "✅ Safe",
-            "detailed": f"ML Confidence: {ml_score:.1%}. {'Phishing detected.' if is_phish else 'No phishing detected.'}"
-        }
+        logger.error(f"Gemini generation error: {e}")
+        # Fallback on error
+        if is_phish:
+            return {"short": f"🚨 Phishing ({ml_score:.0%})", "detailed": f"ML confidence: {ml_score:.1%}. Gemini unavailable."}
+        else:
+            return {"short": f"✅ Safe ({ml_score:.0%})", "detailed": f"ML confidence: {ml_score:.1%}. Gemini unavailable."}
 
 # ============================================================
 # API MODELS
@@ -118,14 +131,14 @@ class ScanRequest(BaseModel):
 
 class ScanResponse(BaseModel):
     url: str
-    risk_score: int          # 0-100, derived from ML confidence
-    threat_level: str        # SAFE / WARNING / CRITICAL
+    risk_score: int
+    threat_level: str
     short_explanation: str
     detailed_analysis: str
     ml_confidence: float
 
 # ============================================================
-# API ENDPOINT – NO FALLBACK, ML model is the only scorer
+# API ENDPOINT
 # ============================================================
 
 @app.post("/api/v1/scan", response_model=ScanResponse)
@@ -134,7 +147,6 @@ async def scan_url(payload: ScanRequest):
     logger.info(f"🔍 Scanning: {url[:60]}...")
 
     try:
-        # 1. Run ML model
         safe_url = url[:500]
         result = detector.predict(safe_url)
         pred = result["prediction"][0]
@@ -143,15 +155,13 @@ async def scan_url(payload: ScanRequest):
 
         logger.info(f"ML Result: {'Phishing' if is_phish else 'Safe'} | Confidence: {ml_score:.2%}")
 
-        # 2. Convert to risk_score (0-100)
         if is_phish:
             risk_score = int(ml_score * 100)
-            risk_score = max(risk_score, 60)   # Ensure phishing is at least 60
+            risk_score = max(risk_score, 60)
         else:
             risk_score = int((1 - ml_score) * 15)
             risk_score = min(risk_score, 20)
 
-        # 3. Threat level
         if risk_score > 60:
             threat_level = "CRITICAL"
         elif risk_score > 35:
@@ -161,8 +171,7 @@ async def scan_url(payload: ScanRequest):
         else:
             threat_level = "SAFE"
 
-        # 4. Gemini explanation (only human-readable text)
-        xai = generate_gemini_explanation(url, is_phish, ml_score)
+        xai = generate_explanation(url, is_phish, ml_score)
 
         return ScanResponse(
             url=url,
@@ -175,7 +184,6 @@ async def scan_url(payload: ScanRequest):
 
     except Exception as e:
         logger.error(f"ML or API error: {traceback.format_exc()}")
-        # No fallback – raise a 500 error so the client knows it failed
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================
@@ -188,7 +196,8 @@ async def health_check():
         "status": "DeepShield V2.16 Online",
         "engine": "phishing-detection-py ML + Gemini XAI",
         "gpu_available": torch.cuda.is_available(),
-        "gemini_configured": True
+        "gemini_available": gemini_available,
+        "model_loaded": detector is not None
     }
 
 @app.get("/")
