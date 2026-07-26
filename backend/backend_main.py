@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 from dotenv import load_dotenv
-from google import genai
+import google.generativeai as genai
 from phishing_detection_py import PhishingDetector  # MUST be installed
 
 load_dotenv()
