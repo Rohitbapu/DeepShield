@@ -28,22 +28,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------- ATTEMPT TO LOAD ML MODEL ----------
-detector = None
-try:
-    from phishing_detection_py import PhishingDetector
-    detector = PhishingDetector()
-    if torch.cuda.is_available():
-        detector.model_pipeline.model.to('cuda:0')
-        detector.model_pipeline.device = torch.device('cuda:0')
-        logger.info("🚀 GPU Active: PhishGuard Engine Ready")
-    else:
-        logger.info("💻 CPU Mode: PhishGuard Engine Running")
-except Exception as e:
-    logger.error(f"❌ ML model load failed: {e}")
-    logger.error(traceback.format_exc())
-    # We'll still start the server; the /health endpoint will show the error
-
 # ---------- ATTEMPT TO LOAD GEMINI ----------
 gemini_available = False
 gemini_client = None
@@ -61,6 +45,29 @@ except ImportError as e:
 except Exception as e:
     logger.error(f"❌ Gemini init error: {e}")
     logger.error(traceback.format_exc())
+
+
+# ---------- ATTEMPT TO LOAD ML MODEL IN BACKGROUND ----------
+# Initialize the global variable, but do not load the model yet!
+detector = None
+
+@app.on_event("startup")
+async def load_ml_model():
+    global detector
+    logger.info("⏳ Server bound to port. Loading ML Model in background...")
+    try:
+        from phishing_detection_py import PhishingDetector
+        detector = PhishingDetector()
+        if torch.cuda.is_available():
+            detector.model_pipeline.model.to('cuda:0')
+            detector.model_pipeline.device = torch.device('cuda:0')
+            logger.info("🚀 GPU Active: PhishGuard Engine Ready")
+        else:
+            logger.info("💻 CPU Mode: PhishGuard Engine Running")
+    except Exception as e:
+        logger.error(f"❌ ML model load failed: {e}")
+        logger.error(traceback.format_exc())
+
 
 # ---------- EXPLANATION GENERATOR ----------
 def generate_explanation(url: str, is_phish: bool, ml_score: float):
@@ -148,7 +155,7 @@ class ScanResponse(BaseModel):
 @app.post("/api/v1/scan", response_model=ScanResponse)
 async def scan_url(payload: ScanRequest):
     if detector is None:
-        raise HTTPException(status_code=503, detail="ML model not loaded")
+        raise HTTPException(status_code=503, detail="ML model is still loading. Please try again in a few seconds.")
 
     url = payload.url
     logger.info(f"🔍 Scanning: {url[:60]}...")
