@@ -30,7 +30,7 @@
       "matches": ["<all_urls>"]
     }
   ],
-  "permissions": ["activeTab", "storage", "webNavigation"],
+  "permissions": ["activeTab", "storage"],
   "host_permissions": [
     "https://regions-organizations-hand-highly.trycloudflare.com/*",
     "<all_urls>"

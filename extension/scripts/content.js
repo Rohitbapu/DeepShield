@@ -79,7 +79,7 @@ function attachClickBlockers() {
       if (e.target.closest('.ds-badge')) return;
       e.preventDefault();
       e.stopPropagation();
-      // Send the blocked link to background
+      // Send the blocked link to background (tab ID is captured automatically)
       chrome.runtime.sendMessage({ action: "block_link", url: target.href });
     }
   }, true); // capture phase to intercept before navigation
