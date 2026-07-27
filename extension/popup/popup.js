@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const allowlistBtn = document.getElementById('allowlistBtn');
   const toggleBtn = document.getElementById('toggleProtectionBtn');
 
-  const API_URL = 'https://decision-cool-call-tile.trycloudflare.com'; // REPLACE
+  const API_URL = 'https://receiving-tower-treasurer-paste.trycloudflare.com'; // REPLACE
 
   // ---------- CHECK BACKEND ----------
   fetch(`${API_URL}/health`)
