@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const allowlistBtn = document.getElementById('allowlistBtn');
   const toggleBtn = document.getElementById('toggleProtectionBtn');
 
-  const API_URL = 'https://deepshield-p6ux.onrender.com'; // REPLACE
+  const API_URL = 'https://decision-cool-call-tile.trycloudflare.com'; // REPLACE
 
   // ---------- CHECK BACKEND ----------
   fetch(`${API_URL}/health`)
