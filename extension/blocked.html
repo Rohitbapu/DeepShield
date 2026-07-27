@@ -26,22 +26,9 @@
       border: 1px solid #e2e8f0;
       text-align: center;
     }
-    .icon {
-      font-size: 56px;
-      margin-bottom: 16px;
-    }
-    h1 {
-      font-size: 24px;
-      font-weight: 700;
-      color: #0f172a;
-      margin-bottom: 8px;
-    }
-    p {
-      color: #475569;
-      font-size: 15px;
-      line-height: 1.6;
-      margin-bottom: 8px;
-    }
+    .icon { font-size: 56px; margin-bottom: 16px; }
+    h1 { font-size: 24px; font-weight: 700; color: #0f172a; margin-bottom: 8px; }
+    p { color: #475569; font-size: 15px; line-height: 1.6; margin-bottom: 8px; }
     .url-box {
       background: #f8fafc;
       border-radius: 12px;
@@ -69,36 +56,27 @@
       cursor: pointer;
       transition: all 0.2s;
     }
-    .btn-primary {
-      background: #2563eb;
-      color: white;
-    }
-    .btn-primary:hover {
-      background: #1d4ed8;
-      transform: scale(1.01);
-    }
-    .btn-secondary {
-      background: #e2e8f0;
-      color: #1e293b;
-    }
-    .btn-secondary:hover {
-      background: #cbd5e1;
-    }
     .btn-success {
       background: #16a34a;
       color: white;
     }
-    .btn-success:hover {
-      background: #15803d;
+    .btn-success:hover { background: #15803d; }
+    .btn-success:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-secondary {
+      background: #e2e8f0;
+      color: #1e293b;
     }
-    .btn:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
+    .btn-secondary:hover { background: #cbd5e1; }
     .footnote {
       margin-top: 20px;
       font-size: 12px;
       color: #94a3b8;
+    }
+    .success-message {
+      color: #16a34a;
+      font-weight: 600;
+      margin-top: 12px;
+      display: none;
     }
   </style>
 </head>
@@ -113,8 +91,88 @@
       <button class="btn btn-success" id="addSafeBtn">➕ Add to Safe List</button>
       <button class="btn btn-secondary" id="goBackBtn">← Go Back</button>
     </div>
+    <div id="successMessage" class="success-message">✅ Added to Safe List! Reloading page...</div>
     <div class="footnote">DeepShield DLP · Enterprise Protection</div>
   </div>
-  <script src="blocked.js"></script>
+
+  <script>
+    (function() {
+      console.log('[DeepShield] Blocked page script running.');
+
+      const urlParams = new URLSearchParams(window.location.search);
+      let blockedUrl = urlParams.get('url');
+
+      const urlDisplay = document.getElementById('blockedUrl');
+      const addBtn = document.getElementById('addSafeBtn');
+      const goBackBtn = document.getElementById('goBackBtn');
+      const successMsg = document.getElementById('successMessage');
+
+      if (blockedUrl) {
+        urlDisplay.textContent = blockedUrl;
+        try {
+          const parsed = new URL(blockedUrl);
+          const domain = parsed.hostname.replace('www.', '');
+          addBtn.dataset.domain = domain;
+          console.log('[DeepShield] Domain:', domain);
+        } catch (e) {
+          console.error('[DeepShield] Invalid URL:', e);
+          addBtn.disabled = true;
+          addBtn.textContent = 'Invalid URL';
+        }
+      } else {
+        urlDisplay.textContent = 'No URL provided.';
+        addBtn.disabled = true;
+      }
+
+      // Add to Safe List
+      addBtn.addEventListener('click', function() {
+        const domain = this.dataset.domain;
+        if (!domain) {
+          alert('No domain to add.');
+          return;
+        }
+        console.log('[DeepShield] Adding to safe list:', domain);
+
+        chrome.storage.local.get(['allowlist'], function(data) {
+          const list = data.allowlist || [];
+          if (!list.includes(domain)) {
+            list.push(domain);
+            chrome.storage.local.set({ allowlist: list }, function() {
+              console.log('[DeepShield] Added:', domain);
+
+              // Show success message
+              addBtn.style.display = 'none';
+              successMsg.style.display = 'block';
+
+              // Reload the previous tab after 1.5 seconds
+              setTimeout(function() {
+                // Find the previous tab and reload it
+                chrome.tabs.query({ active: false, currentWindow: true }, function(tabs) {
+                  // Find the tab that is not the blocked page
+                  for (var i = 0; i < tabs.length; i++) {
+                    if (tabs[i].url && !tabs[i].url.includes('blocked.html')) {
+                      chrome.tabs.reload(tabs[i].id);
+                      console.log('[DeepShield] Reloaded tab:', tabs[i].url);
+                      break;
+                    }
+                  }
+                });
+                // Close the blocked page
+                window.close();
+              }, 1500);
+            });
+          } else {
+            addBtn.textContent = '✅ Already in Safe List';
+            addBtn.disabled = true;
+            setTimeout(window.close, 1500);
+          }
+        });
+      });
+
+      goBackBtn.addEventListener('click', function() {
+        window.history.back();
+      });
+    })();
+  </script>
 </body>
 </html>
