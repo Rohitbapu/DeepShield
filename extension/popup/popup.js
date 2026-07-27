@@ -5,14 +5,22 @@ document.addEventListener('DOMContentLoaded', () => {
   const allowlistBtn = document.getElementById('allowlistBtn');
   const toggleBtn = document.getElementById('toggleProtectionBtn');
 
- const API_URL = "https://communities-artists-management-cyber.trycloudflare.com/api/v1/scan";
-  // ---------- CHECK BACKEND ----------
-  fetch(`${API_URL}/health`)
-    .then(() => {
-      statusDot.classList.add('online');
-      statusText.textContent = 'Online';
+  // Root endpoint config to avoid route appending bugs
+  const BASE_URL = "https://communities-artists-management-cyber.trycloudflare.com";
+  const API_URL = `${BASE_URL}/api/v1/scan`;
+
+  // ---------- CHECK BACKEND HEALTH ----------
+  fetch(`${BASE_URL}/health`)
+    .then((res) => {
+      if (res.ok) {
+        statusDot.classList.add('online');
+        statusText.textContent = 'Online';
+      } else {
+        throw new Error('Non-200 response');
+      }
     })
     .catch(() => {
+      statusDot.classList.remove('online');
       statusText.textContent = 'Offline';
     });
 
@@ -20,7 +28,11 @@ document.addEventListener('DOMContentLoaded', () => {
   scanBtn.addEventListener('click', () => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]) {
-        chrome.tabs.sendMessage(tabs[0].id, { action: "trigger_active_scan" });
+        chrome.tabs.sendMessage(tabs[0].id, { action: "trigger_active_scan" }, () => {
+          if (chrome.runtime.lastError) {
+            // Silence unhandled error on restricted pages
+          }
+        });
         scanBtn.textContent = '⏳ Scanning...';
         scanBtn.disabled = true;
         setTimeout(() => {
