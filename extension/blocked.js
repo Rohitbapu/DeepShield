@@ -1,5 +1,5 @@
 // ============================================================
-// DEEPSHIELD - BLOCKED PAGE LOGIC
+// DEEPSHIELD - BLOCKED PAGE LOGIC (lowercase)
 // ============================================================
 
 (function() {
@@ -14,14 +14,13 @@
   const goBackBtn = document.getElementById('goBackBtn');
   const successMsg = document.getElementById('successMessage');
 
-  // Display the URL
   if (blockedUrl) {
     urlDisplay.textContent = blockedUrl;
     try {
       const parsed = new URL(blockedUrl);
-      const domain = parsed.hostname.replace('www.', '');
+      const domain = parsed.hostname.replace('www.', '').toLowerCase(); // <-- lowercase
       addBtn.dataset.domain = domain;
-      console.log('[DeepShield] Domain:', domain);
+      console.log('[DeepShield] Extracted domain (lowercased):', domain);
     } catch (e) {
       console.error('[DeepShield] Invalid URL:', e);
       addBtn.disabled = true;
@@ -33,33 +32,29 @@
     addBtn.textContent = 'No URL';
   }
 
-  // "Add to Safe List" button
   addBtn.addEventListener('click', function() {
     const domain = this.dataset.domain;
     if (!domain) {
       alert('No domain to add.');
       return;
     }
-    console.log('[DeepShield] Adding to safe list:', domain);
+    console.log('[DeepShield] Adding domain to allowlist:', domain);
 
     chrome.storage.local.get(['allowlist'], function(data) {
       const list = data.allowlist || [];
+      // Check existence case-insensitively (already lowercased)
       if (!list.includes(domain)) {
         list.push(domain);
         chrome.storage.local.set({ allowlist: list }, function() {
-          console.log('[DeepShield] Added:', domain);
-
-          // Show success
+          console.log('[DeepShield] Updated allowlist:', list);
           addBtn.style.display = 'none';
           successMsg.style.display = 'block';
 
-          // Reload original tab
           if (originalTabId && !isNaN(originalTabId)) {
             chrome.tabs.reload(originalTabId, function() {
               console.log('[DeepShield] Reloaded tab:', originalTabId);
             });
           } else {
-            // Fallback: reload previous tab
             chrome.tabs.query({ active: false, currentWindow: true }, function(tabs) {
               for (var i = 0; i < tabs.length; i++) {
                 if (tabs[i].url && !tabs[i].url.includes('blocked.html')) {
@@ -71,7 +66,6 @@
             });
           }
 
-          // Close blocked page
           setTimeout(function() {
             chrome.tabs.getCurrent(function(tab) {
               if (tab && tab.id) chrome.tabs.remove(tab.id);
@@ -79,6 +73,7 @@
           }, 1500);
         });
       } else {
+        console.log('[DeepShield] Domain already in allowlist:', domain);
         addBtn.textContent = '✅ Already in Safe List';
         addBtn.disabled = true;
         setTimeout(function() {
@@ -90,7 +85,6 @@
     });
   });
 
-  // "Go Back" – closes the tab
   goBackBtn.addEventListener('click', function() {
     chrome.tabs.getCurrent(function(tab) {
       if (tab && tab.id) chrome.tabs.remove(tab.id);

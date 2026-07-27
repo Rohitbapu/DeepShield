@@ -1,5 +1,5 @@
 // ============================================================
-// DEEPSHIELD V5.1 - CONTENT SCRIPT (DIRECT API + CLICK BLOCK)
+// DEEPSHIELD V5.1 - CONTENT SCRIPT (with allowlist logging)
 // ============================================================
 
 const API_URL = "https://regions-organizations-hand-highly.trycloudflare.com/api/v1/scan";
@@ -50,7 +50,6 @@ function highlightLink(anchor, scanData) {
   anchor.classList.add(isCritical ? 'ds-danger' : 'ds-warning');
   anchor.title = '🚨 DeepShield: ' + scanData.risk_score + '% - ' + (scanData.short_explanation || 'Suspicious');
 
-  // Badge for deep-dive report
   var badge = document.createElement('span');
   badge.className = 'ds-badge ' + (isCritical ? 'ds-badge-danger' : 'ds-badge-warning');
   badge.textContent = isCritical ? '🚨' : '⚠️';
@@ -64,39 +63,45 @@ function highlightLink(anchor, scanData) {
   });
   anchor.parentNode.insertBefore(badge, anchor.nextSibling);
 
-  // Attach click blocker if not already done
   if (!blockListenersAttached) {
     attachClickBlockers();
   }
 }
 
 function attachClickBlockers() {
-  // Use event delegation to catch clicks on dangerous links
   document.addEventListener('click', function(e) {
     let target = e.target.closest('a.ds-danger, a.ds-warning');
     if (target) {
-      // Only block if the click is not on the badge (already handled)
       if (e.target.closest('.ds-badge')) return;
       e.preventDefault();
       e.stopPropagation();
-      // Send the blocked link to background (tab ID is captured automatically)
       chrome.runtime.sendMessage({ action: "block_link", url: target.href });
     }
-  }, true); // capture phase to intercept before navigation
+  }, true);
   blockListenersAttached = true;
 }
 
+// ---------- UPDATED: scanAllPageLinks with allowlist logging + lowercase ----------
 function scanAllPageLinks() {
   chrome.storage.local.get(['filterDisabled', 'allowlist'], function(storage) {
+    console.log('[DeepShield] Allowlist from storage:', storage.allowlist);
+
     if (storage.filterDisabled) {
       console.log('[DeepShield] Protection disabled.');
       return;
     }
 
-    var hostname = window.location.hostname.replace('www.', '');
-    var allowlist = storage.allowlist || [];
+    // Extract current hostname, lowercased, without www.
+    var hostname = window.location.hostname.replace('www.', '').toLowerCase();
+    var allowlist = (storage.allowlist || []).map(function(domain) {
+      return domain.toLowerCase(); // ensure all lowercase for comparison
+    });
+
+    console.log('[DeepShield] Current hostname (lowercased):', hostname);
+    console.log('[DeepShield] Allowlist (lowercased):', allowlist);
+
     if (allowlist.indexOf(hostname) !== -1) {
-      console.log('[DeepShield] Site is in allowlist, skipping.');
+      console.log('[DeepShield] Site is in allowlist, skipping scan.');
       return;
     }
 
