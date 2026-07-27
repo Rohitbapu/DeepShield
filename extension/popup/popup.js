@@ -5,8 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const allowlistBtn = document.getElementById('allowlistBtn');
   const toggleBtn = document.getElementById('toggleProtectionBtn');
 
-  const API_URL = 'https://receiving-tower-treasurer-paste.trycloudflare.com'; // REPLACE
-
+ const API_URL = "https://communities-artists-management-cyber.trycloudflare.com/api/v1/scan";
   // ---------- CHECK BACKEND ----------
   fetch(`${API_URL}/health`)
     .then(() => {

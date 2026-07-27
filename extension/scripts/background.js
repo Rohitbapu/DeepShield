@@ -2,7 +2,7 @@
 // DEEPSHIELD V2.7 - BACKGROUND SERVICE WORKER
 // ============================================================
 
-const API_URL = "https://receiving-tower-treasurer-paste.trycloudflare.com/api/v1/scan";
+const API_URL = "https://communities-artists-management-cyber.trycloudflare.com/api/v1/scan";
 const LANDING_PAGE = "https://rohitbapu.github.io/DeepShield";
 
 // Cache to avoid duplicate scans
