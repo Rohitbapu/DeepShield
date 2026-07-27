@@ -4,11 +4,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const scanBtn = document.getElementById('activeScanBtn');
   const allowlistBtn = document.getElementById('allowlistBtn');
   const toggleBtn = document.getElementById('toggleProtectionBtn');
+  const dashboardBtn = document.getElementById('dashboardBtn');
 
-  // Base domain config to prevent route concatenation bugs
-  const BASE_URL = "https://communities-artists-management-cyber.trycloudflare.com";
+  const BASE_URL = "https://regions-organizations-hand-highly.trycloudflare.com";
 
-  // ---------- 1. CHECK BACKEND HEALTH ----------
+  // ---------- CHECK BACKEND ----------
   fetch(`${BASE_URL}/health`)
     .then((res) => {
       if (res.ok) {
@@ -23,13 +23,13 @@ document.addEventListener('DOMContentLoaded', () => {
       statusText.textContent = 'Offline';
     });
 
-  // ---------- 2. ACTIVE PAGE SCAN ----------
+  // ---------- ACTIVE SCAN ----------
   scanBtn.addEventListener('click', () => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0] && tabs[0].id) {
         chrome.tabs.sendMessage(tabs[0].id, { action: "trigger_active_scan" }, () => {
           if (chrome.runtime.lastError) {
-            // Silence harmless error on restricted browser pages (chrome://)
+            // ignore
           }
         });
         scanBtn.textContent = '⏳ Scanning...';
@@ -43,7 +43,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // ---------- 3. TOGGLE REAL-TIME PROTECTION ----------
+  // ---------- OPEN DASHBOARD ----------
+  dashboardBtn.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ action: "open_dashboard" });
+    window.close();
+  });
+
+  // ---------- TOGGLE PROTECTION ----------
   chrome.storage.local.get(['filterDisabled'], (data) => {
     const disabled = data.filterDisabled || false;
     toggleBtn.textContent = disabled ? '🛡️ Protection: OFF' : '🛡️ Protection: ON';
@@ -62,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // ---------- 4. ALLOWLIST SAFE LIST ----------
+  // ---------- ALLOWLIST ----------
   function updateAllowlistButton(domain) {
     chrome.storage.local.get(['allowlist'], (data) => {
       const list = data.allowlist || [];
@@ -96,7 +102,6 @@ document.addEventListener('DOMContentLoaded', () => {
   allowlistBtn.addEventListener('click', () => {
     const domain = allowlistBtn.dataset.domain;
     if (!domain) return;
-
     chrome.storage.local.get(['allowlist'], (data) => {
       const list = data.allowlist || [];
       if (!list.includes(domain)) {

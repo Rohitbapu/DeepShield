@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "DeepShield DLP",
   "description": "Enterprise-grade AI Phishing & Malicious URL Detector",
-  "version": "5.0.0",
+  "version": "5.1.0",
   "icons": {
     "16": "images/icon-16.png",
     "32": "images/icon-32.png",
@@ -24,9 +24,15 @@
       "run_at": "document_idle"
     }
   ],
-  "permissions": ["activeTab", "storage"],
+  "web_accessible_resources": [
+    {
+      "resources": ["blocked.html", "blocked.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "permissions": ["activeTab", "storage", "webNavigation"],
   "host_permissions": [
-    "https://communities-artists-management-cyber.trycloudflare.com/*",
+    "https://regions-organizations-hand-highly.trycloudflare.com/*",
     "<all_urls>"
   ]
 }

@@ -1,11 +1,12 @@
 // ============================================================
-// DEEPSHIELD V5.0 - CONTENT SCRIPT (DIRECT API)
+// DEEPSHIELD V5.1 - CONTENT SCRIPT (DIRECT API + CLICK BLOCK)
 // ============================================================
 
-const API_URL = "https://communities-artists-management-cyber.trycloudflare.com/api/v1/scan";
+const API_URL = "https://regions-organizations-hand-highly.trycloudflare.com/api/v1/scan";
 const LANDING_PAGE = "https://rohitbapu.github.io/DeepShield";
 
 const scannedCache = new Map();
+let blockListenersAttached = false;
 
 console.log("[DeepShield] Content script loaded.");
 
@@ -49,6 +50,7 @@ function highlightLink(anchor, scanData) {
   anchor.classList.add(isCritical ? 'ds-danger' : 'ds-warning');
   anchor.title = '🚨 DeepShield: ' + scanData.risk_score + '% - ' + (scanData.short_explanation || 'Suspicious');
 
+  // Badge for deep-dive report
   var badge = document.createElement('span');
   badge.className = 'ds-badge ' + (isCritical ? 'ds-badge-danger' : 'ds-badge-warning');
   badge.textContent = isCritical ? '🚨' : '⚠️';
@@ -61,6 +63,27 @@ function highlightLink(anchor, scanData) {
     chrome.runtime.sendMessage({ action: "open_report", url: anchor.href });
   });
   anchor.parentNode.insertBefore(badge, anchor.nextSibling);
+
+  // Attach click blocker if not already done
+  if (!blockListenersAttached) {
+    attachClickBlockers();
+  }
+}
+
+function attachClickBlockers() {
+  // Use event delegation to catch clicks on dangerous links
+  document.addEventListener('click', function(e) {
+    let target = e.target.closest('a.ds-danger, a.ds-warning');
+    if (target) {
+      // Only block if the click is not on the badge (already handled)
+      if (e.target.closest('.ds-badge')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // Send the blocked link to background
+      chrome.runtime.sendMessage({ action: "block_link", url: target.href });
+    }
+  }, true); // capture phase to intercept before navigation
+  blockListenersAttached = true;
 }
 
 function scanAllPageLinks() {
