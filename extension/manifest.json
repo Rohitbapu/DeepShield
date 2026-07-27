@@ -1,8 +1,8 @@
 {
+  "manifest_version": 3,
   "name": "DeepShield DLP",
   "description": "Enterprise-grade AI Phishing & Malicious URL Detector",
-  "version": "2.7",
-  "manifest_version": 3,
+  "version": "5.0.0",
   "icons": {
     "16": "images/icon-16.png",
     "32": "images/icon-32.png",
@@ -10,29 +10,23 @@
     "128": "images/icon-128.png"
   },
   "background": {
-    "service_worker": "scripts/background.js"
+    "service_worker": "background.js"
   },
   "action": {
-    "default_popup": "popup/popup.html",
-    "default_title": "Scan this page with DeepShield"
+    "default_popup": "popup.html",
+    "default_title": "Scan page with DeepShield"
   },
   "content_scripts": [
     {
-      "js": ["scripts/content.js"],
-      "css": ["styles.css"],
       "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
       "run_at": "document_idle"
     }
   ],
-  "web_accessible_resources": [
-    {
-      "resources": ["images/*.png"],
-      "matches": ["<all_urls>"]
-    }
-  ],
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["activeTab", "storage"],
   "host_permissions": [
-    "https://deepshield-p6ux.onrender.com/*",
+    "https://*.trycloudflare.com/*",
     "<all_urls>"
   ]
 }

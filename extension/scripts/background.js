@@ -1,33 +1,30 @@
 // ============================================================
-// DEEPSHIELD V2.7 - BACKGROUND SERVICE WORKER
+// DEEPSHIELD V5.0 - BACKGROUND SERVICE WORKER (CORS PROXY)
 // ============================================================
 
-const API_URL = "https://communities-artists-management-cyber.trycloudflare.com/api/v1/scan";
+const BASE_URL = "https://communities-artists-management-cyber.trycloudflare.com";
+const API_URL = `${BASE_URL}/api/v1/scan`;
 const LANDING_PAGE = "https://rohitbapu.github.io/DeepShield";
 
-// Cache to avoid duplicate scans
+// Internal scan memory cache (5-minute TTL)
 const scanCache = new Map();
 
-async function scanUrl(url, tabId) {
-    // Check cache (5 minutes)
+async function executeBackendScan(url) {
     if (scanCache.has(url)) {
         const cached = scanCache.get(url);
         if (Date.now() - cached.timestamp < 300000) {
-            chrome.tabs.sendMessage(tabId, {
-                action: "display_result",
-                url: url,
-                data: cached.data
-            });
-            return;
-        } else {
-            scanCache.delete(url);
+            return cached.data;
         }
+        scanCache.delete(url);
     }
 
     try {
         const response = await fetch(API_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Bypass-Tunnel-Remainder': 'true'
+            },
             body: JSON.stringify({ url })
         });
 
@@ -35,30 +32,12 @@ async function scanUrl(url, tabId) {
         const data = await response.json();
 
         scanCache.set(url, { data, timestamp: Date.now() });
-
-        chrome.tabs.sendMessage(tabId, {
-            action: "display_result",
-            url: url,
-            data: data
-        });
+        return data;
 
     } catch (error) {
-        console.error("Scan failed for", url, error);
-        chrome.tabs.sendMessage(tabId, {
-            action: "display_result",
-            url: url,
-            error: "Service unavailable"
-        });
+        console.error("[DeepShield Background] Scan error for", url, error.message);
+        return null;
     }
-}
-
-function batchScan(urls, tabId) {
-    const uniqueUrls = [...new Set(urls)];
-    uniqueUrls.forEach((url, index) => {
-        setTimeout(() => {
-            scanUrl(url, tabId);
-        }, index * 300);
-    });
 }
 
 function openDeepDive(url) {
@@ -66,22 +45,19 @@ function openDeepDive(url) {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    const tabId = sender.tab ? sender.tab.id : null;
-
-    if (request.action === "check_url") {
-        if (tabId) scanUrl(request.url, tabId);
-        sendResponse({ status: "queued" });
+    // 1. Proxy scan request from Content Script (Bypasses Content Script CORS)
+    if (request.action === "scan_url_proxy") {
+        executeBackendScan(request.targetUrl).then(data => {
+            if (data) {
+                sendResponse({ success: true, data });
+            } else {
+                sendResponse({ success: false, error: "Service unavailable or offline" });
+            }
+        });
         return true;
     }
 
-    if (request.action === "active_scan") {
-        if (tabId && request.urls && request.urls.length > 0) {
-            batchScan(request.urls, tabId);
-        }
-        sendResponse({ status: "batch_started" });
-        return true;
-    }
-
+    // 2. Open Deep Dive report in landing page
     if (request.action === "open_report") {
         openDeepDive(request.url);
         sendResponse({ status: "opened" });
