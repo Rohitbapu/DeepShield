@@ -10,23 +10,23 @@
     "128": "images/icon-128.png"
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "scripts/background.js"
   },
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "popup/popup.html",
     "default_title": "Scan page with DeepShield"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": ["scripts/content.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"
     }
   ],
   "permissions": ["activeTab", "storage"],
   "host_permissions": [
-    "https://*.trycloudflare.com/*",
+    "https://communities-artists-management-cyber.trycloudflare.com/*",
     "<all_urls>"
   ]
 }

@@ -1,110 +1,116 @@
 // ============================================================
-// DEEPSHIELD DLP - CONTENT SCRIPT (PAGE LINK SCANNER)
+// DEEPSHIELD V5.0 - CONTENT SCRIPT (DIRECT API)
 // ============================================================
 
-const scannedUrlCache = new Map();
+const API_URL = "https://communities-artists-management-cyber.trycloudflare.com/api/v1/scan";
+const LANDING_PAGE = "https://rohitbapu.github.io/DeepShield";
 
-/**
- * Delegates URL scanning to background.js proxy
- */
+const scannedCache = new Map();
+
+console.log("[DeepShield] Content script loaded.");
+
 function scanSingleUrl(targetUrl) {
   return new Promise((resolve) => {
-    if (!targetUrl || typeof targetUrl !== 'string') return resolve(null);
     targetUrl = targetUrl.trim();
-
     if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
-      return resolve(null);
+      resolve(null);
+      return;
     }
 
-    if (scannedUrlCache.has(targetUrl)) {
-      return resolve(scannedUrlCache.get(targetUrl));
+    if (scannedCache.has(targetUrl)) {
+      resolve(scannedCache.get(targetUrl));
+      return;
     }
 
-    chrome.runtime.sendMessage(
-      { action: "scan_url_proxy", targetUrl: targetUrl },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          console.warn("[DeepShield] Messaging error:", chrome.runtime.lastError.message);
-          return resolve(null);
-        }
-
-        if (response && response.success) {
-          scannedUrlCache.set(targetUrl, response.data);
-          resolve(response.data);
-        } else {
-          resolve(null);
-        }
-      }
-    );
+    fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: targetUrl })
+    })
+    .then(response => {
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.json();
+    })
+    .then(data => {
+      scannedCache.set(targetUrl, data);
+      resolve(data);
+    })
+    .catch(error => {
+      console.warn('[DeepShield] Scan error:', error);
+      resolve(null);
+    });
   });
 }
 
-/**
- * Highlights suspicious links on the page
- */
-function highlightSuspiciousLinks(url, scanData) {
+function highlightLink(anchor, scanData) {
   if (!scanData || scanData.risk_score < 40) return;
 
-  try {
-    const selector = `a[href="${CSS.escape(url)}"], a[href="${CSS.escape(url)}/"]`;
-    const anchorElements = document.querySelectorAll(selector);
+  const isCritical = scanData.risk_score >= 70;
+  anchor.classList.add(isCritical ? 'ds-danger' : 'ds-warning');
+  anchor.title = '🚨 DeepShield: ' + scanData.risk_score + '% - ' + (scanData.short_explanation || 'Suspicious');
 
-    anchorElements.forEach(anchor => {
-      const isCritical = scanData.risk_score >= 70;
-      anchor.classList.add(isCritical ? 'ds-danger' : 'ds-warning');
-      anchor.title = `🚨 DeepShield Threat Flag (${scanData.risk_score}% Risk - ${scanData.threat_level}): ${scanData.short_explanation || 'Suspicious structural features detected.'}`;
-    });
-  } catch (e) {
-    console.error("[DeepShield] Highlighting error:", e);
-  }
+  var badge = document.createElement('span');
+  badge.className = 'ds-badge ' + (isCritical ? 'ds-badge-danger' : 'ds-badge-warning');
+  badge.textContent = isCritical ? '🚨' : '⚠️';
+  badge.title = 'Click for full report';
+  badge.style.marginLeft = '6px';
+  badge.style.cursor = 'pointer';
+  badge.addEventListener('click', function(e) {
+    e.stopPropagation();
+    e.preventDefault();
+    chrome.runtime.sendMessage({ action: "open_report", url: anchor.href });
+  });
+  anchor.parentNode.insertBefore(badge, anchor.nextSibling);
 }
 
-/**
- * Collects and scans all page links
- */
-async function scanAllPageLinks() {
-  console.log("[DeepShield] Gathering links for analysis...");
-
-  const storageData = await new Promise(resolve => chrome.storage.local.get(['filterDisabled', 'allowlist'], resolve));
-  if (storageData.filterDisabled) {
-    console.log("[DeepShield] Real-time protection is OFF.");
-    return;
-  }
-
-  const allowlist = storageData.allowlist || [];
-  const currentHostname = window.location.hostname.replace('www.', '');
-  if (allowlist.includes(currentHostname)) {
-    console.log("[DeepShield] Site is in user allowlist. Skipping scan.");
-    return;
-  }
-
-  const links = Array.from(document.querySelectorAll('a[href]'))
-    .map(a => a.href)
-    .filter((value, index, self) => self.indexOf(value) === index);
-
-  if (links.length === 0) return;
-
-  console.log(`[DeepShield] Analyzing ${links.length} unique links...`);
-
-  for (const linkUrl of links) {
-    const scanData = await scanSingleUrl(linkUrl);
-    if (scanData && scanData.risk_score >= 40) {
-      highlightSuspiciousLinks(linkUrl, scanData);
-      console.warn(`🚨 [DeepShield Flagged] ${linkUrl} (${scanData.risk_score}%)`);
+function scanAllPageLinks() {
+  chrome.storage.local.get(['filterDisabled', 'allowlist'], function(storage) {
+    if (storage.filterDisabled) {
+      console.log('[DeepShield] Protection disabled.');
+      return;
     }
-  }
+
+    var hostname = window.location.hostname.replace('www.', '');
+    var allowlist = storage.allowlist || [];
+    if (allowlist.indexOf(hostname) !== -1) {
+      console.log('[DeepShield] Site is in allowlist, skipping.');
+      return;
+    }
+
+    var anchors = document.querySelectorAll('a[href]');
+    var urls = [];
+    anchors.forEach(function(a) {
+      var href = a.href;
+      if (href && href.startsWith('http')) {
+        if (urls.indexOf(href) === -1) urls.push(href);
+      }
+    });
+
+    if (urls.length === 0) return;
+    console.log('[DeepShield] Scanning ' + urls.length + ' links...');
+
+    urls.forEach(function(url) {
+      scanSingleUrl(url).then(function(data) {
+        if (data && data.risk_score >= 40) {
+          var selector = 'a[href="' + url.replace(/"/g, '\\"') + '"]';
+          document.querySelectorAll(selector).forEach(function(anchor) {
+            highlightLink(anchor, data);
+          });
+          console.warn('[DeepShield] Flagged: ' + url + ' (' + data.risk_score + '%)');
+        }
+      });
+    });
+  });
 }
 
-// Listen for popup trigger
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
   if (request.action === "trigger_active_scan") {
     scanAllPageLinks();
-    sendResponse({ status: "Scan initiated" });
+    sendResponse({ status: "done" });
   }
   return true;
 });
 
-// Auto-run on document idle
 if (document.readyState === 'complete') {
   scanAllPageLinks();
 } else {
